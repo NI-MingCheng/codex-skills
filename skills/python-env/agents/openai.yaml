@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Environment"
+  short_description: "Run Python safely in the codex conda environment"
+  default_prompt: "Use $python-env to run Python or manage dependencies in the codex conda environment."

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/NI-MingCheng/codex-skills.git",
+  "skills": [
+    {
+      "name": "encoding-guard",
+      "version": "1.0.0",
+      "path": "skills/encoding-guard",
+      "platforms": ["windows", "linux", "macos"],
+      "requires_conda_codex": true,
+      "python_packages": [
+        {
+          "distribution": "charset-normalizer",
+          "version": "3.4.8"
+        }
+      ],
+      "self_test": "scripts/self_test.py"
+    },
+    {
+      "name": "git-workflow",
+      "version": "1.0.0",
+      "path": "skills/git-workflow",
+      "platforms": ["windows", "linux", "macos"],
+      "requires_conda_codex": true,
+      "python_packages": [],
+      "self_test": "scripts/repository_registry.py"
+    },
+    {
+      "name": "python-env",
+      "version": "1.0.0",
+      "path": "skills/python-env",
+      "platforms": ["windows", "linux", "macos"],
+      "requires_conda_codex": true,
+      "python_packages": [],
+      "self_test": null
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: codex
+          python-version: "3.12"
+          channels: conda-forge
+          auto-update-conda: false
+      - name: Install locked CI-only test dependencies
+        shell: pwsh
+        run: conda run -n codex python -m pip install -r runtime/requirements-codex.txt
+      - name: Validate repository and Skills
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/validate.ps1
+      - name: Test named sync and rollback
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/test-sync.ps1

@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+set -eu
+
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script="$script_dir/encoding_guard.py"
+runtime_pointer="$script_dir/codex-text.runtime"
+
+if [ -n "${CODEX_TEXT_PYTHON:-}" ]; then
+  python=$CODEX_TEXT_PYTHON
+elif [ -f "$runtime_pointer" ]; then
+  IFS= read -r python < "$runtime_pointer"
+else
+  python=
+fi
+
+case "$(uname -s 2>/dev/null || printf unknown)" in
+  MINGW*|MSYS*|CYGWIN*)
+    python="${python:-${ENCODING_GUARD_PYTHON:-$HOME/.conda/envs/codex/python.exe}}"
+    ;;
+  Linux*|Darwin*)
+    python="${python:-${ENCODING_GUARD_PYTHON:-$HOME/.conda/envs/codex/bin/python}}"
+    ;;
+  *)
+    printf '%s\n' '{"error":"platform_unsupported","message":"Unsupported launcher platform"}' >&2
+    exit 125
+    ;;
+esac
+
+if [ ! -x "$python" ]; then
+  printf '%s\n' '{"error":"python_missing","message":"Encoding Guard Python was not found"}' >&2
+  exit 125
+fi
+exec "$python" "$script" "$@"

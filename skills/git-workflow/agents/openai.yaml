@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Workflow"
+  short_description: "Classify repositories and create safe scoped commits"
+  default_prompt: "Use $git-workflow to classify this repository and commit the completed validated change safely."
