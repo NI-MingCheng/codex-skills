@@ -11,12 +11,13 @@ jobs:
   validate:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: conda-incubator/setup-miniconda@v3
+      - uses: actions/checkout@v7
+      - uses: conda-incubator/setup-miniconda@v4
         with:
           activate-environment: codex
           python-version: "3.12"
           channels: conda-forge
+          conda-remove-defaults: "true"
           auto-update-conda: false
       - name: Install locked CI-only test dependencies
         shell: pwsh
