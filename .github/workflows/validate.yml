@@ -21,7 +21,7 @@ jobs:
           auto-update-conda: false
       - name: Install locked CI-only test dependencies
         shell: pwsh
-        run: conda run -n codex python -m pip install -r runtime/requirements-codex.txt
+        run: conda install -n codex -y --override-channels -c conda-forge charset-normalizer=3.4.8 pyyaml=6.0.3
       - name: Validate repository and Skills
         shell: pwsh
         run: pwsh -NoProfile -File ./scripts/validate.ps1
