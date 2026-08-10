@@ -97,7 +97,7 @@ def validate_text(all_files: list[Path]) -> None:
         "api_" + "token",
         "D:/Programs/" + "miniconda3",
         "D:\\Programs\\" + "miniconda3",
-        "C:\\Users\\" + "nmc",
+        "C:\\Users\\" + "example-user",
     )
     for path in all_files:
         if not is_text(path):
