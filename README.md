@@ -10,6 +10,11 @@
 
 本仓库只发布可移植 Skills，不安装或配置 Plugins、MCP Servers、Hooks、Codex 主配置以及系统软件。安装器会先执行 prerequisite 与冲突检查；缺少依赖时只报告，不自行安装软件、runtime、conda environment 或 package。
 
+## 全局规则模板
+
+- [`docs/global-agents.md`](docs/global-agents.md)：可公开复用的全局 `AGENTS.md` 模板，包含 Windows path 与 Markdown escape 的安全验证规则。
+- 出于用户设备安全边界，Skill 安装和更新脚本不会自动覆盖全局 `AGENTS.md`；需要时由用户明确授权后人工同步。
+
 ## 复制给 Codex 的两句指令
 
 ### 新设备全量或指定安装
