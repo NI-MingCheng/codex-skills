@@ -1,42 +1,57 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Windows.Forms;
 
-namespace EncodingChecker
+namespace EncodingChecker;
+
+public class ListViewColumnSorter : IComparer
 {
-    public class ListViewColumnSorter : IComparer
+    private readonly CaseInsensitiveComparer _objectCompare = new();
+
+    public int SortColumn { get; set; }
+
+    public SortOrder Order { get; set; }
+
+    public int Compare(object? x, object? y)
     {
-        private readonly CaseInsensitiveComparer _objectCompare;
+        if (x is not ListViewItem item1)
+            throw new ArgumentNullException(nameof(x));
 
-        public int SortColumn { get; set; }
+        if (y is not ListViewItem item2)
+            throw new ArgumentNullException(nameof(y));
 
-        public SortOrder Order { get; set; }
+        int result = _objectCompare.Compare(
+            item1.SubItems[SortColumn].Text,
+            item2.SubItems[SortColumn].Text);
 
-        public ListViewColumnSorter()
+        // Files are added in non-deterministic (parallel-scan) completion order, so
+        // ties on the sort column need a stable tiebreaker across the other columns -
+        // otherwise equal rows reshuffle between runs even though the sort is applied.
+        if (result == 0)
+            result = CompareRemainingColumns(item1, item2, SortColumn);
+
+        return Order switch
         {
-            SortColumn = 0;
-            Order = SortOrder.None;
-            _objectCompare = new CaseInsensitiveComparer();
+            SortOrder.Ascending => result,
+            SortOrder.Descending => -result,
+            _ => 0,
+        };
+    }
+
+    private static int CompareRemainingColumns(ListViewItem x, ListViewItem y, int sortColumn)
+    {
+        int count = Math.Min(x.SubItems.Count, y.SubItems.Count);
+
+        for (int i = 0; i < count; i++)
+        {
+            if (i == sortColumn)
+                continue;
+
+            int result = string.CompareOrdinal(x.SubItems[i].Text, y.SubItems[i].Text);
+            if (result != 0)
+                return result;
         }
 
-        public int Compare(object x, object y)
-        {
-            ListViewItem listViewItem = (ListViewItem)x;
-            if (listViewItem == null) throw new ArgumentNullException(nameof(listViewItem));
-
-            ListViewItem listViewItem2 = (ListViewItem)y;
-            if (listViewItem2 == null) throw new ArgumentNullException(nameof(listViewItem2));
-
-            int compareResult = _objectCompare.Compare(a: listViewItem.SubItems[index: SortColumn].Text, b: listViewItem2.SubItems[index: SortColumn].Text);
-            if (Order == SortOrder.Ascending)
-            {
-                return compareResult;
-            }
-            if (Order == SortOrder.Descending)
-            {
-                return -compareResult;
-            }
-            return 0;
-        }
+        return 0;
     }
 }

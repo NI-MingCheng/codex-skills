@@ -1,0 +1,13 @@
+{
+  "upstream": "amrali-eg/EncodingChecker",
+  "upstream_version": "3.15.1",
+  "upstream_commit": "56550ed97401aef47bdc1e83ca10ccfcc80a18ae",
+  "agent_version": "1.0.0",
+  "snapshot_schema": 2,
+  "runtime": ".NET 10 Desktop Runtime",
+  "utf_unknown_version": "2.7.0",
+  "exe_sha256": {
+    "EncodingChecker.Cli.exe": "c310090befb27718c65203762b77e0f2c54d1c0ebb6b7d4b7ad5b2ea62cf58ef",
+    "EncodingChecker.exe": "9552ba981cfdf083a91ff4c30b9bcee9a6afa9398b9b9906fd5dcfd9aa70b9e7"
+  }
+}

@@ -1,0 +1,1431 @@
+using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace EncodingChecker;
+
+/// <summary>
+/// Action performed for each scanned file.
+/// </summary>
+internal enum ScanAction
+{
+    /// <summary>
+    /// Detect and report only.
+    /// </summary>
+    Detect,
+
+    /// <summary>
+    /// Detect and validate against <see cref="ScanDirectoryOptions.ValidCharsets"/>.
+    /// </summary>
+    Validate,
+
+    /// <summary>
+    /// Detect and convert when required.
+    /// </summary>
+    Convert,
+}
+
+/// <summary>
+/// Options for <see cref="ScanEngine.ScanDirectory"/>.
+/// </summary>
+internal sealed class ScanDirectoryOptions
+{
+    internal required string BaseDirectory { get; init; }
+
+    internal bool IncludeSubdirectories { get; init; } = true;
+
+    /// <summary>Include masks; empty means "*".</summary>
+    internal IReadOnlyList<string>? IncludePatterns { get; init; }
+
+    /// <summary>Exclude masks applied after include masks.</summary>
+    internal IReadOnlyList<string>? ExcludePatterns { get; init; }
+
+    /// <summary>Full paths to exclude regardless of pattern matches.</summary>
+    internal IReadOnlyCollection<string>? ExcludedFullPaths { get; init; }
+
+    /// <summary>
+    /// Receives counts of files the scan never examined. Supply one to report
+    /// coverage; the scan behaves identically either way.
+    /// </summary>
+    internal DirectoryTraversal.TraversalCounters? Counters { get; init; }
+
+    internal ScanAction Action { get; init; }
+
+    /// <summary>Accepted charset labels for validation.</summary>
+    internal IReadOnlyCollection<string>? ValidCharsets { get; init; }
+
+    /// <summary>Target charset for conversion, without "-bom".</summary>
+    internal string? TargetCharset { get; init; }
+
+    /// <summary>
+    /// Source charset chosen by the caller, used instead of detection.
+    /// </summary>
+    /// <remarks>
+    /// Choosing the source does not bypass conversion safeguards or verification.
+    /// </remarks>
+    internal string? SourceCharset { get; init; }
+
+    /// <summary>
+    /// Capture each source file's hash for the conversion journal.
+    /// </summary>
+    /// <remarks>
+    /// Disabled by default to avoid an extra full read when no journal is needed.
+    /// </remarks>
+    internal bool CaptureSourceHashes { get; init; }
+
+    internal bool TargetWriteBom { get; init; }
+
+    /// <summary>Simulate conversion without writing.</summary>
+    internal bool WhatIf { get; init; }
+
+    /// <summary>Back up the original file before conversion.</summary>
+    internal bool Backup { get; init; }
+
+    internal int MaxParallelism { get; init; } = ScanEngine.DefaultMaxParallelism;
+}
+
+/// <summary>
+/// Shared file-scanning and conversion pipeline for the GUI and CLI.
+/// </summary>
+internal static class ScanEngine
+{
+    // Conversion is bound by per-file I/O latency rather than CPU, so the cap is set
+    // above the point where CPU count would matter. Measured on 2,000 files: 4 gave
+    // 4,207 ms and 8 gave 2,511 ms without backups, 10,516 and 7,305 with them. Past 8
+    // the curve flattens, and backup runs stop improving entirely.
+    // Named rather than inlined so the documentation stating it can be asserted against
+    // it. Both the help text and CLI.md still said 4 a release after this became 8.
+    internal const int MaxParallelismCap = 8;
+
+    internal static readonly int DefaultMaxParallelism =
+        Math.Min(Environment.ProcessorCount, MaxParallelismCap);
+
+    /// <summary>Charset label used when the source encoding cannot be established.</summary>
+    internal const string UnknownCharset = "(Unknown)";
+
+    #region Public API
+
+    /// <summary>
+    /// Scans the base directory and processes matching files with bounded parallelism.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="onEntry"/> is invoked concurrently from worker threads.
+    /// </remarks>
+    internal static void ScanDirectory(
+        ScanDirectoryOptions options,
+        Action<ConversionReportEntry> onEntry,
+        CancellationToken cancellationToken,
+        Action<string>? onWarning = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(onEntry);
+
+        // Resolve shared settings once and fail before scanning any file.
+        Encoding? targetEncoding = ValidateOptions(options);
+
+        List<Regex> includePatterns =
+            DirectoryTraversal.CompilePatterns(options.IncludePatterns, defaultToMatchAll: true);
+
+        List<Regex> excludePatterns =
+            DirectoryTraversal.CompilePatterns(options.ExcludePatterns, defaultToMatchAll: false);
+
+        IEnumerable<string> files = DirectoryTraversal.EnumerateFiles(
+            options.BaseDirectory,
+            options.IncludeSubdirectories,
+            includePatterns,
+            excludePatterns,
+            options.ExcludedFullPaths,
+            onWarning,
+            options.Counters);
+
+        RunParallel(
+            files,
+            options.MaxParallelism,
+            getPath: path => path,
+            processItem: path =>
+                ProcessFileForScan(path, options, targetEncoding, cancellationToken),
+            onEntry: onEntry,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Validates options independently of caller-side validation.
+    /// </summary>
+    private static Encoding? ValidateOptions(ScanDirectoryOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.BaseDirectory) ||
+            !Directory.Exists(options.BaseDirectory))
+        {
+            throw new ArgumentException(
+                $@"Base directory '{options.BaseDirectory}' does not exist.",
+                nameof(options));
+        }
+
+        if (DirectoryTraversal.IsReparsePointDirectory(options.BaseDirectory))
+        {
+            throw new ArgumentException(
+                $@"Base directory '{options.BaseDirectory}' is a symbolic link or " +
+                $@"other reparse point.",
+                nameof(options));
+        }
+
+        if (options.MaxParallelism < 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                options.MaxParallelism,
+                @"MaxParallelism must be at least 1.");
+        }
+
+        switch (options.Action)
+        {
+            case ScanAction.Convert:
+                if (string.IsNullOrWhiteSpace(options.TargetCharset))
+                {
+                    throw new ArgumentException(
+                        @"TargetCharset is required for Convert.",
+                        nameof(options));
+                }
+
+                if (TextEncoding.TryResolve(options.TargetCharset, out Encoding? target))
+                    return target;
+
+                throw new ArgumentException(
+                    $"Target encoding '{options.TargetCharset}' is not available.",
+                    nameof(options));
+
+            case ScanAction.Validate:
+                if (options.ValidCharsets is null ||
+                    options.ValidCharsets.Count == 0)
+                {
+                    throw new ArgumentException(
+                        @"ValidCharsets is required for Validate.",
+                        nameof(options));
+                }
+
+                break;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Converts previously detected entries with bounded parallelism.
+    /// </summary>
+    /// <param name="maxParallelism">The maximum number of concurrent operations.</param>
+    /// <param name="whatIf">Simulate conversion without writing.</param>
+    /// <param name="backup">Back up each original before conversion.</param>
+    /// <param name="entries">The list of files to convert.</param>
+    /// <param name="targetCharset">The character set to convert to.</param>
+    /// <param name="targetWriteBom">Whether to write a BOM when converting to the target charset.</param>
+    /// <param name="onEntry">The callback to invoke for each converted entry.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <remarks>
+    /// <paramref name="onEntry"/> has the same concurrent-callback contract as
+    /// <see cref="ScanDirectory"/>.
+    /// </remarks>
+    internal static void ConvertFiles(
+        IEnumerable<ConversionReportEntry> entries,
+        string targetCharset,
+        bool targetWriteBom,
+        int maxParallelism,
+        bool whatIf,
+        bool backup,
+        Action<ConversionReportEntry> onEntry,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(onEntry);
+
+        // Resolve the target once, matching ScanDirectory.
+        if (!TextEncoding.TryResolve(targetCharset, out Encoding? resolvedTarget))
+        {
+            throw new ArgumentException(
+                $"Target encoding '{targetCharset}' is not available.",
+                nameof(targetCharset));
+        }
+
+        Encoding targetEncoding = resolvedTarget;
+
+        RunParallel(
+            entries,
+            maxParallelism,
+            getPath: entry => entry.FilePath,
+            processItem: entry =>
+            {
+                entry.ResetAttemptEvidence();
+
+                // A failed planning snapshot is already a terminal error.
+                if (entry is
+                    {
+                        Action: PlannedAction.Refuse,
+                        ReasonCode: ConversionReasonCodes.SourceSnapshotFailed
+                    })
+                {
+                    entry.Result = ConversionRowResult.Error;
+                    entry.ReplacementCommitted = false;
+                    return entry;
+                }
+
+                // Use the label that describes the file as it exists now.
+                ParseCharsetLabel(
+                    entry.EffectiveSourceLabel,
+                    out string sourceCharset,
+                    out bool sourceHasBom);
+
+                // Unknown sources are skipped before reaching Encoding.GetEncoding.
+                if (sourceCharset == UnknownCharset)
+                {
+                    entry.Action = PlannedAction.Skip;
+                    entry.SourceInterpretation = SourceInterpretation.NotApplicable;
+                    entry.Result = ConversionRowResult.Skipped;
+                    return entry;
+                }
+
+                Encoding sourceEncoding;
+                Encoding? automaticallyDetected = null;
+
+                if (!TextEncoding.TryResolve(sourceCharset, out Encoding? resolvedSource))
+                {
+                    entry.Action = PlannedAction.Refuse;
+                    entry.SourceInterpretation = SourceInterpretation.NotApplicable;
+                    entry.Result = ConversionRowResult.Refused;
+                    entry.ReasonCode = ConversionReasonCodes.UnsupportedSourceEncoding;
+                    entry.Diagnostic = $"The source encoding '{sourceCharset}' is not available.";
+                    return entry;
+                }
+
+                sourceEncoding = resolvedSource;
+
+                if (!string.IsNullOrWhiteSpace(entry.DetectedEncodingLabel))
+                    TextEncoding.TryResolve(entry.DetectedEncodingLabel, out automaticallyDetected);
+
+                ApplyConversion(
+                    entry,
+                    entry.FilePath,
+                    sourceEncoding,
+                    automaticallyDetected,
+                    sourceCharset,
+                    sourceHasBom,
+                    targetCharset,
+                    targetEncoding,
+                    targetWriteBom,
+                    whatIf,
+                    backup,
+                    cancellationToken);
+
+                return entry;
+            },
+            onEntry: onEntry,
+        cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Re-detects selected automatic-source entries and binds every entry to the exact
+    /// bytes used to prepare its conversion plan.
+    /// </summary>
+    internal static void RefreshSourceSnapshots(
+        IReadOnlyList<ConversionReportEntry> entries,
+        int maxParallelism,
+        CancellationToken cancellationToken)
+    {
+        RunParallel(
+            entries,
+            maxParallelism,
+            getPath: entry => entry.FilePath,
+            processItem: entry =>
+            {
+                try
+                {
+                    SourceSnapshot snapshot = CaptureSourceSnapshot(
+                        entry.FilePath,
+                        entry.SourceEncodingWasSpecified
+                            ? entry.EffectiveSourceLabel
+                            : null);
+
+                    entry.SourceEncoding = snapshot.SourceEncoding?.WebName ?? UnknownCharset;
+                    entry.SourceHasBom = snapshot.HasBom;
+                    entry.TargetEncoding = entry.SourceEncoding;
+                    entry.TargetHasBom = snapshot.HasBom;
+                    entry.CurrentCharsetLabel = entry.SourceEncodingWasSpecified
+                        ? FormatCharsetLabel(entry.SourceEncoding, snapshot.HasBom)
+                        : null;
+                    entry.DetectedEncodingLabel = snapshot.DetectedEncoding?.WebName;
+                    entry.DetectedEncodingHasBom = snapshot.DetectedEncodingHasBom;
+                    entry.HasReliableUnicodeDetection = snapshot.HasReliableUnicodeDetection;
+                    entry.BomlessUnicodeDoubt = snapshot.BomlessUnicodeDoubt;
+                    entry.ExpectedSourceSha256 = snapshot.Sha256;
+                    entry.ExpectedSourceSize = snapshot.Size;
+
+                    if (snapshot.SourceEncoding is null)
+                    {
+                        entry.Action = PlannedAction.Skip;
+                        entry.SourceInterpretation = SourceInterpretation.NotApplicable;
+                        entry.Result = ConversionRowResult.Skipped;
+                        entry.ReasonCode = ConversionReasonCodes.UnknownEncoding;
+                        entry.Diagnostic =
+                            "The file's encoding could not be identified from its contents.";
+                    }
+                    else
+                    {
+                        entry.Action = null;
+                        entry.SourceInterpretation = null;
+                        entry.Result = ConversionRowResult.Unchanged;
+                        entry.ReasonCode = null;
+                        entry.Diagnostic = null;
+                    }
+                }
+                catch (Exception ex) when (
+                    ex is IOException or UnauthorizedAccessException or
+                    ArgumentException or NotSupportedException)
+                {
+                    entry.Action = PlannedAction.Refuse;
+                    entry.SourceInterpretation = SourceInterpretation.NotApplicable;
+                    entry.Result = ConversionRowResult.Error;
+                    entry.ReplacementCommitted = false;
+
+                    // Rows survive between runs; a hash from an earlier snapshot must not
+                    // stand in for bytes this attempt could not read.
+                    entry.ExpectedSourceSha256 = null;
+                    entry.ExpectedSourceSize = null;
+                    entry.ReasonCode = ConversionReasonCodes.SourceSnapshotFailed;
+                    entry.Diagnostic =
+                        $"The source could not be read consistently for planning: {ex.Message}";
+                }
+
+                return entry;
+            },
+            onEntry: _ => { },
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Splits a charset label into its base name and BOM flag.
+    /// </summary>
+    internal static void ParseCharsetLabel(
+        string label,
+        out string baseCharset,
+        out bool hasBom)
+    {
+        hasBom = label.EndsWith("-bom", StringComparison.OrdinalIgnoreCase);
+        baseCharset = hasBom ? label[..^4] : label;
+    }
+
+    internal static string FormatCharsetLabel(
+        string baseCharset,
+        bool hasBom) =>
+        hasBom ? baseCharset + "-bom" : baseCharset;
+
+    /// <summary>Whether EC offers this Unicode encoding with an optional BOM.</summary>
+    internal static bool IsBomCapable(string charset) =>
+        charset.Equals("utf-8", StringComparison.OrdinalIgnoreCase)
+        || charset.Equals("utf-16", StringComparison.OrdinalIgnoreCase)
+        || charset.Equals("utf-16BE", StringComparison.OrdinalIgnoreCase)
+        || charset.Equals("utf-32", StringComparison.OrdinalIgnoreCase)
+        || charset.Equals("utf-32BE", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Formats a target for people without inventing BOM semantics for ASCII.</summary>
+    internal static string DescribeTarget(string charset, bool hasBom) =>
+        IsBomCapable(charset)
+            ? charset + (hasBom ? " with a BOM" : " without a BOM")
+            : charset;
+
+    #endregion
+
+
+    #region Per-File Processing
+
+    private static ConversionReportEntry ProcessFileForScan(
+        string path,
+        ScanDirectoryOptions options,
+        Encoding? targetEncoding,
+        CancellationToken cancellationToken)
+    {
+        bool sourceWasSpecified = !string.IsNullOrWhiteSpace(options.SourceCharset);
+
+        Encoding? detected;
+        Encoding? automaticallyDetected = null;
+        bool hasReliableUnicodeDetection = false;
+        bool snapshotDetectedHasBom = false;
+        BomlessUnicodeKind snapshotBomlessUnicodeDoubt = BomlessUnicodeKind.None;
+        bool hasBom;
+        string? sourceSha256 = null;
+        long? sourceSize = null;
+
+        if (options.Action == ScanAction.Convert)
+        {
+            SourceSnapshot snapshot = CaptureSourceSnapshot(
+                path,
+                sourceWasSpecified ? options.SourceCharset : null);
+
+            detected = snapshot.SourceEncoding;
+            automaticallyDetected = snapshot.DetectedEncoding;
+            hasReliableUnicodeDetection = snapshot.HasReliableUnicodeDetection;
+            snapshotDetectedHasBom = snapshot.DetectedEncodingHasBom;
+            snapshotBomlessUnicodeDoubt = snapshot.BomlessUnicodeDoubt;
+            hasBom = snapshot.HasBom;
+            sourceSha256 = snapshot.Sha256;
+            sourceSize = snapshot.Size;
+        }
+        else if (sourceWasSpecified)
+        {
+            TextEncoding.TryResolve(options.SourceCharset, out detected);
+
+            hasBom = detected != null && HasPreamble(path, detected);
+        }
+        else
+        {
+            // Record the application's request for automatic detection. Keeping this
+            // here makes TextEncoding a pure byte-to-encoding utility, while tests can
+            // still prove that View, conversion, and -Apply never re-detect a file.
+            DetectionCounters.RecordDetection();
+            detected = TextEncoding.DetectFromFile(path);
+            hasBom = detected != null && HasPreamble(path, detected);
+
+            // Read-only modes must disclose the same doubt conversion refuses.
+            snapshotBomlessUnicodeDoubt = detected is null
+                ? BomlessUnicodeKind.None
+                : ClassifyBomlessUnicode(path, detected, hasBom);
+        }
+
+        string sourceCharset =
+            detected?.WebName ?? UnknownCharset;
+
+        var entry = new ConversionReportEntry
+        {
+            FilePath = path,
+            SourceEncoding = sourceCharset,
+            SourceHasBom = hasBom,
+            TargetEncoding = sourceCharset,
+            TargetHasBom = hasBom,
+            Result = ConversionRowResult.Unchanged,
+            // Preserve whether the source was detected or explicitly supplied.
+            SourceEncodingWasSpecified = sourceWasSpecified,
+            CaptureSourceHash = options.CaptureSourceHashes,
+            ExpectedSourceSha256 = sourceSha256,
+            ExpectedSourceSize = sourceSize,
+            HasReliableUnicodeDetection = options.Action == ScanAction.Convert &&
+                hasReliableUnicodeDetection,
+            DetectedEncodingHasBom = options.Action == ScanAction.Convert &&
+                snapshotDetectedHasBom,
+            // Not gated on Convert like the two above: those are policy inputs, this
+            // states what the bytes do and holds in every mode.
+            BomlessUnicodeDoubt = snapshotBomlessUnicodeDoubt,
+        };
+
+        if (options.Action == ScanAction.Convert)
+            entry.DetectedEncodingLabel = automaticallyDetected?.WebName;
+        else if (!sourceWasSpecified && detected is not null)
+            entry.DetectedEncodingLabel = detected.WebName;
+
+        switch (options.Action)
+        {
+            case ScanAction.Detect:
+                if (sourceCharset == UnknownCharset)
+                {
+                    entry.Result = ConversionRowResult.Skipped;
+                    entry.ReasonCode = ConversionReasonCodes.UnknownEncoding;
+                    entry.Diagnostic =
+                        "The file's encoding could not be identified from its contents.";
+                }
+                else if (entry.HasBomlessUnicodeDoubt)
+                {
+                    // Detection found an estimate, not a reading. Nothing failed, so
+                    // the result stays Unchanged; the row must still say which it is,
+                    // and say it with the same code conversion would use.
+                    entry.ReasonCode =
+                        BomlessUnicodeSafety.ReasonCodeFor(
+                            entry.BomlessUnicodeDoubt ?? BomlessUnicodeKind.None);
+                    entry.Diagnostic =
+                        BomlessUnicodeSafety.DescribeUnprovableByteOrder(detected!);
+                }
+
+                break;
+
+            case ScanAction.Validate:
+                string label =
+                    FormatCharsetLabel(sourceCharset, hasBom);
+
+                // ASCII bytes are already BOM-less UTF-8, so a list allowing that allows ASCII.
+                // Only the BOM-less label: an ASCII file has no BOM, so utf-8-bom still fails it.
+                bool allowedAsUtf8 =
+                    detected is not null &&
+                    options.ValidCharsets is not null &&
+                    options.ValidCharsets.Contains("utf-8", StringComparer.OrdinalIgnoreCase) &&
+                    ConversionPolicy.IsAsciiAlreadyUtf8(
+                        detected.CodePage, hasBom, Encoding.UTF8.CodePage, targetHasBom: false);
+
+                bool listed =
+                    options.ValidCharsets is not null &&
+                    options.ValidCharsets.Contains(label, StringComparer.OrdinalIgnoreCase);
+
+                bool isValid =
+                    sourceCharset != UnknownCharset && (listed || allowedAsUtf8);
+
+                string? validationDiagnostic = null;
+
+                entry.Result =
+                    isValid && StrictFileValidation.TryValidateFile(
+                        path, detected!, out validationDiagnostic)
+                        ? ConversionRowResult.Unchanged
+                        : ConversionRowResult.Invalid;
+
+                if (!isValid)
+                {
+                    // Two unlike situations used to arrive here as the same bare Invalid:
+                    // a file EC could not identify, and one it identified as something the
+                    // caller did not allow. Every other mode names both. Leaving these
+                    // blank made -Validate the only outcome whose reason the reader had to
+                    // reconstruct from the encoding column and the list they passed in.
+                    bool identified = sourceCharset != UnknownCharset;
+
+                    entry.ReasonCode = identified
+                        ? ConversionReasonCodes.CharsetNotAllowed
+                        : ConversionReasonCodes.UnknownEncoding;
+
+                    entry.Diagnostic = identified
+                        ? $"The file is {label}, which is not in the allowed list."
+                        : "The file's encoding could not be identified from its contents.";
+                }
+                else if (entry.Result == ConversionRowResult.Invalid)
+                {
+                    entry.ReasonCode = ConversionReasonCodes.StrictValidationFailed;
+                    entry.Diagnostic = validationDiagnostic;
+                }
+                else if (entry.HasBomlessUnicodeDoubt)
+                {
+                    // The two byte orders are separate entries in the allowed set; the
+                    // label matched only because .NET names both "utf-16". Passing the
+                    // file would assert an identity EC cannot establish, and conversion
+                    // refuses that same file later.
+                    entry.Result = ConversionRowResult.Invalid;
+                    entry.ReasonCode =
+                        BomlessUnicodeSafety.ReasonCodeFor(
+                            entry.BomlessUnicodeDoubt ?? BomlessUnicodeKind.None);
+                    entry.Diagnostic =
+                        BomlessUnicodeSafety.DescribeUnprovableByteOrder(detected!)
+                        + $" The label '{label}' is in the allowed list, but EC cannot"
+                        + " confirm this file belongs to it.";
+                }
+                else if (!listed)
+                {
+                    // Passed only through the UTF-8 rule, so say why a us-ascii row passes.
+                    entry.Diagnostic = ConversionPolicy.AsciiAlreadyUtf8Reason;
+                }
+
+                break;
+
+            case ScanAction.Convert:
+                if (detected != null)
+                {
+                    // Guaranteed present for Convert by ValidateOptions.
+                    ApplyConversion(
+                        entry,
+                        path,
+                        detected,
+                        automaticallyDetected,
+                        sourceCharset,
+                        hasBom,
+                        options.TargetCharset!,
+                        targetEncoding!,
+                        options.TargetWriteBom,
+                        options.WhatIf,
+                        options.Backup,
+                        cancellationToken);
+                }
+                else
+                {
+                    entry.Action = PlannedAction.Skip;
+                    entry.SourceInterpretation = SourceInterpretation.NotApplicable;
+                    entry.Result = ConversionRowResult.Skipped;
+                    entry.ReasonCode = ConversionReasonCodes.UnknownEncoding;
+                    entry.Diagnostic =
+                        "The file's encoding could not be identified from its contents.";
+                }
+
+                break;
+        }
+
+        return entry;
+    }
+
+    private sealed record SourceSnapshot(
+        Encoding? DetectedEncoding,
+        Encoding? SourceEncoding,
+        bool HasReliableUnicodeDetection,
+        bool DetectedEncodingHasBom,
+        BomlessUnicodeKind BomlessUnicodeDoubt,
+        bool HasBom,
+        string Sha256,
+        long Size);
+
+    /// <summary>
+    /// Detects and hashes through one read-only handle so the encoding decision and hash
+    /// necessarily describe the same bytes.
+    /// </summary>
+    private static SourceSnapshot CaptureSourceSnapshot(
+        string path,
+        string? explicitSourceLabel)
+    {
+        using FileStream stream = new(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            64 * 1024,
+            FileOptions.SequentialScan);
+
+        DetectionCounters.RecordDetection();
+        Encoding? detectedEncoding = TextEncoding.DetectFromStream(stream);
+        Encoding? sourceEncoding = detectedEncoding;
+
+        if (!string.IsNullOrWhiteSpace(explicitSourceLabel))
+        {
+            ParseCharsetLabel(
+                explicitSourceLabel,
+                out string sourceCharset,
+                out _);
+            if (!TextEncoding.TryResolve(sourceCharset, out sourceEncoding))
+            {
+                throw new NotSupportedException(
+                    $"The source encoding '{sourceCharset}' is not available.");
+            }
+        }
+
+        bool hasBom = sourceEncoding != null && HasPreamble(stream, sourceEncoding);
+        bool detectedHasBom = detectedEncoding != null && HasPreamble(stream, detectedEncoding);
+        bool hasReliableUnicodeDetection = IsReliablyDetectedUnicode(
+            stream, detectedEncoding, detectedHasBom);
+        BomlessUnicodeKind bomlessUnicodeDoubt = BomlessUnicodeSafety.Classify(
+            stream, detectedEncoding, detectedHasBom);
+
+        stream.Position = 0;
+        string hash = Convert.ToHexStringLower(SHA256.HashData(stream));
+
+        return new SourceSnapshot(
+            detectedEncoding, sourceEncoding, hasReliableUnicodeDetection,
+            detectedHasBom, bomlessUnicodeDoubt, hasBom, hash, stream.Length);
+    }
+
+    private static bool IsReliablyDetectedUnicode(
+        Stream stream, Encoding? encoding, bool hasBom)
+    {
+        if (encoding is null)
+            return false;
+
+        return encoding.CodePage switch
+        {
+            // UTF-8 is self-validating only after the whole file succeeds strictly.
+            65001 => StrictFileValidation.TryValidateStream(stream, encoding, out _),
+
+            // Byte-order markers make UTF-16/32 identity explicit. Do not elevate a
+            // BOM-less heuristic to the same safety level for an explicit-source veto.
+            1200 or 1201 or 12000 or 12001 => hasBom &&
+                StrictFileValidation.TryValidateStream(stream, encoding, out _),
+
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// Checks the whole current source before a direct conversion that did not receive
+    /// a source-bound planning snapshot.
+    /// </summary>
+    private static BomlessUnicodeKind ClassifyBomlessUnicode(
+        string path,
+        Encoding sourceEncoding,
+        bool sourceHasBom)
+    {
+        if (sourceHasBom ||
+            sourceEncoding.CodePage is not (1200 or 1201 or 12000 or 12001))
+        {
+            return BomlessUnicodeKind.None;
+        }
+
+        using FileStream stream = new(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            64 * 1024,
+            FileOptions.SequentialScan);
+
+        return BomlessUnicodeSafety.Classify(stream, sourceEncoding, sourceHasBom);
+    }
+
+    /// <summary>
+    /// Determines whether this file begins with the given codec's actual preamble.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Encoding.GetPreamble"/> describes a codec's optional marker, not the
+    /// bytes in any particular file. A BOM-less UTF file must remain BOM-less in a plan.
+    /// </remarks>
+    private static bool HasPreamble(string path, Encoding encoding)
+    {
+        byte[] preamble = encoding.GetPreamble();
+
+        if (preamble.Length == 0)
+            return false;
+
+        using FileStream stream = new(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            preamble.Length,
+            FileOptions.SequentialScan);
+
+        return HasPreamble(stream, encoding);
+    }
+
+    private static bool HasPreamble(Stream stream, Encoding encoding)
+    {
+        byte[] preamble = encoding.GetPreamble();
+
+        if (preamble.Length == 0 || stream.Length < preamble.Length)
+            return false;
+
+        long originalPosition = stream.Position;
+
+        try
+        {
+            stream.Position = 0;
+            Span<byte> prefix = stackalloc byte[preamble.Length];
+            stream.ReadExactly(prefix);
+            return prefix.SequenceEqual(preamble);
+        }
+        finally
+        {
+            stream.Position = originalPosition;
+        }
+    }
+
+    /// <summary>
+    /// Converts when the source does not already match the target.
+    /// </summary>
+    private static void ApplyConversion(
+        ConversionReportEntry entry,
+        string path,
+        Encoding sourceEncoding,
+        Encoding? automaticallyDetected,
+        string sourceCharset,
+        bool sourceHasBom,
+        string targetCharset,
+        Encoding targetEncoding,
+        bool targetWriteBom,
+        bool whatIf,
+        bool backup,
+        CancellationToken cancellationToken)
+    {
+        entry.TargetEncoding = targetCharset;
+        entry.TargetHasBom = targetWriteBom;
+        entry.ResolvedSourceLabel = FormatCharsetLabel(sourceCharset, sourceHasBom);
+
+        // Capture the original hash before anything can overwrite the file.
+        if (entry is { CaptureSourceHash: true, JournalSourceSha256: null })
+        {
+            try
+            {
+                entry.JournalSourceSha256 =
+                    ConversionMetadataStore.ComputeSha256(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Leave the hash empty; the journal will reflect that it was unavailable.
+            }
+        }
+
+        // A previously reviewed entry still has its source and target attached. Recheck
+        // the small deterministic rule for each pass, but never detect the bytes again.
+        if (entry.Action is null)
+            DetectionCounters.RecordClassification();
+
+        // With an explicit source, test detection's estimate rather than the supplied answer.
+        Encoding? bomlessCandidate = entry.SourceEncodingWasSpecified
+            ? automaticallyDetected
+            : sourceEncoding;
+
+        bool candidateHasBom = entry.SourceEncodingWasSpecified
+            ? entry.DetectedEncodingHasBom
+            : sourceHasBom;
+
+        // A stored None is an answer, so only null triggers classification.
+        BomlessUnicodeKind bomlessUnicodeDoubt =
+            entry.BomlessUnicodeDoubt
+            ?? (bomlessCandidate is null
+                ? BomlessUnicodeKind.None
+                : ClassifyBomlessUnicode(path, bomlessCandidate, candidateHasBom));
+
+        entry.BomlessUnicodeDoubt = bomlessUnicodeDoubt;
+
+        // The decision: refuse automatically only when nobody has supplied an answer.
+        BomlessUnicodeKind automaticBomlessUnicodeDoubt =
+            entry.SourceEncodingWasSpecified
+                ? BomlessUnicodeKind.None
+                : bomlessUnicodeDoubt;
+
+        PlannedAction action = ConversionPolicy.Decide(
+            sourceCharset,
+            sourceEncoding.CodePage,
+            sourceHasBom,
+            targetCharset,
+            targetEncoding.CodePage,
+            targetWriteBom,
+            entry.SourceEncodingWasSpecified,
+            TextEncoding.IsUnicodeOrAscii(sourceEncoding),
+            entry.SourceEncodingWasSpecified && entry.HasReliableUnicodeDetection &&
+            automaticallyDetected is not null &&
+            automaticallyDetected.CodePage != sourceEncoding.CodePage,
+            automaticBomlessUnicodeDoubt,
+            out SourceInterpretation sourceInterpretation,
+            out string? policyReason);
+
+        // Revalidation may make an applied plan stricter, never broader. Preserve a
+        // reviewed non-writing action if the current policy would convert the file.
+        if (entry.Approved is { } approved &&
+            approved.Action is not PlannedAction.Convert &&
+            action is PlannedAction.Convert)
+        {
+            entry.Action = approved.Action;
+            entry.SourceInterpretation = approved.SourceInterpretation;
+            entry.Result = ConversionPolicy.ToRowResult(approved.Action);
+            entry.ReasonCode = approved.ReasonCode;
+            entry.Diagnostic = approved.Diagnostic;
+            return;
+        }
+
+        entry.Action = action;
+        entry.SourceInterpretation = sourceInterpretation;
+        entry.ReasonCode = ConversionPolicy.ReasonCodeFor(
+            action, sourceInterpretation, automaticBomlessUnicodeDoubt);
+
+        // A retry must not carry a diagnostic from an earlier failed attempt.
+        // The optional BOM-less Unicode advisory below is added back for this pass.
+        entry.Diagnostic = null;
+
+        // Matching an unprovable estimate still means the byte order was taken on trust.
+        // The warning stays with a file left unchanged too: the choice still decided how
+        // its bytes were read.
+        if (action is PlannedAction.Convert or PlannedAction.Unchanged &&
+            entry.SourceEncodingWasSpecified &&
+            automaticallyDetected is not null &&
+            IsUtf16OrUtf32(automaticallyDetected) &&
+            !entry.DetectedEncodingHasBom &&
+            (bomlessUnicodeDoubt != BomlessUnicodeKind.None ||
+             automaticallyDetected.CodePage != sourceEncoding.CodePage))
+        {
+            bool matchesEstimate =
+                automaticallyDetected.CodePage == sourceEncoding.CodePage;
+
+            entry.ReasonCode = matchesEstimate
+                ? ConversionReasonCodes.ExplicitSourceOnUnprovableBomlessUnicode
+                : ConversionReasonCodes.ExplicitSourceDiffersFromBomlessUnicodeEstimate;
+
+            entry.Diagnostic = matchesEstimate
+                ? $"This file's BOM-less {sourceEncoding.WebName} byte order could not be "
+                  + "established from its bytes. Your selection matches EC's estimate, but "
+                  + "that estimate is not evidence, so the order was taken on trust. EC kept "
+                  + "all strict conversion checks enabled."
+                : $"EC estimated BOM-less {automaticallyDetected.WebName}, but you selected "
+                  + $"{sourceEncoding.WebName}. BOM-less Unicode can be ambiguous, so EC used "
+                  + "your explicit selection and kept all strict conversion checks enabled.";
+        }
+
+        // "Already in the target encoding" is a claim about the whole file, and detection
+        // saw at most the first 64 KiB of it. Without this check a file whose later bytes
+        // are not valid in the codec just named was reported as already correct, and
+        // whether EC noticed depended only on which target the caller happened to type:
+        // the same corrupt file was an Error under -Target utf-16 and Unchanged under
+        // -Target utf-8. -Validate has always read the whole file; this is the same check,
+        // reached from the one path that had decided it had nothing to do.
+        if (action == PlannedAction.Unchanged &&
+            !StrictFileValidation.TryValidateFile(
+                path, sourceEncoding, out string? unchangedDiagnostic))
+        {
+            // The plan records the action, so a file that cannot be read in full is planned
+            // as a refusal, not counted as already in the target encoding.
+            entry.Action = PlannedAction.Refuse;
+            entry.Result = ConversionRowResult.Error;
+            entry.ReasonCode = ConversionReasonCodes.StrictValidationFailed;
+            entry.Diagnostic = unchangedDiagnostic;
+
+            // Nothing was written, and nothing was going to be.
+            entry.ReplacementCommitted = false;
+            return;
+        }
+
+        if (action != PlannedAction.Convert)
+        {
+            entry.Result = ConversionPolicy.ToRowResult(action);
+            // A source-choice warning set above outranks the policy's own explanation.
+            entry.Diagnostic = automaticBomlessUnicodeDoubt != BomlessUnicodeKind.None
+                ? BomlessUnicodeSafety.DescribeRefusal(sourceEncoding)
+                : entry.Diagnostic ?? policyReason;
+            return;
+        }
+
+        if (HasMultipleLeadingPreambles(path, sourceEncoding))
+        {
+            entry.Action = PlannedAction.Refuse;
+            entry.Result = ConversionRowResult.Refused;
+            entry.ReasonCode = ConversionReasonCodes.MultipleLeadingByteOrderMarks;
+            entry.Diagnostic =
+                "The source starts with more than one byte-order mark. "
+                + "Remove the extra mark before converting; no files were changed.";
+            return;
+        }
+
+        if (whatIf)
+        {
+            // A preview saying "would be converted" has to have read what it is promising
+            // about. Nothing here decoded the file, so -Plan - which sets WhatIf - recorded
+            // Action=Convert with no reason for a source that cannot be read, exited 0, and
+            // showed the reviewer nothing; the failure surfaced at -Apply, after approval
+            // and part-way through the batch. Refuse rather than schedule it, so the plan
+            // never carries a file it cannot carry out.
+            //
+            // The decode only. A source that reads cleanly can still fail on a target that
+            // cannot represent it, and no amount of reading the source predicts that;
+            // closing that half means running the whole conversion into a discarded buffer.
+            if (!StrictFileValidation.TryValidateFile(
+                    path, sourceEncoding, out string? previewDiagnostic))
+            {
+                entry.Action = PlannedAction.Refuse;
+                entry.Result = ConversionRowResult.Error;
+                entry.ReasonCode = ConversionReasonCodes.StrictValidationFailed;
+                entry.Diagnostic = previewDiagnostic;
+                entry.ReplacementCommitted = false;
+                return;
+            }
+
+            // Converted here means "would be converted"; the flag says so in reports.
+            entry.Result = ConversionRowResult.Converted;
+            entry.ConversionOnlyDecided = true;
+            return;
+        }
+
+        // No replacement has happened yet; failures before the converter are known safe.
+        entry.ReplacementCommitted = false;
+
+        if (backup)
+        {
+            try
+            {
+                if (!CreateBackup(path, entry.ExpectedSourceSha256))
+                {
+                    // Nothing was replaced, so the row must not claim a backup; the converter
+                    // would refuse these bytes anyway, for the same reason.
+                    entry.Result = ConversionRowResult.Error;
+                    entry.ReasonCode = nameof(ConversionErrorCode.SourceChangedDuringConversion);
+                    entry.Diagnostic =
+                        $"{ConversionErrorCode.SourceChangedDuringConversion}: The source file no "
+                        + "longer matches the one this conversion was decided on; it changed "
+                        + "before its backup was made. The existing backup and recovery record "
+                        + "were left in place.";
+                    return;
+                }
+
+                entry.BackupPath = path + ".bak";
+            }
+            catch (Exception ex) when (
+                ex is IOException or UnauthorizedAccessException)
+            {
+                entry.Result = ConversionRowResult.Error;
+                entry.ReasonCode = ConversionReasonCodes.BackupFailed;
+                entry.Diagnostic = $"Backup failed: {ex.Message}";
+                return;
+            }
+        }
+
+        ConversionMetadata? recoveryMetadata = null;
+
+        var conversionOptions = new ConversionOptions
+        {
+            WriteBom = targetWriteBom,
+
+            // Without a backup there is nothing to restore from.
+            RecordConversion = backup
+                ? record =>
+                {
+                    string? error = PrepareConversionMetadata(
+                        path, record, entry, out ConversionMetadata? prepared);
+
+                    if (error is null)
+                    {
+                        recoveryMetadata = prepared;
+                        entry.RecoveryMetadataPath = ConversionMetadataStore.MetadataPathFor(path);
+                    }
+
+                    return error;
+                }
+                : null,
+
+            CompleteConversionRecord = backup
+                ? () =>
+                {
+                    if (recoveryMetadata is null)
+                        return "the prepared recovery record is unavailable.";
+
+                    ConversionMetadata completed = recoveryMetadata with
+                    {
+                        InstallationState = ConversionInstallationState.Completed,
+                    };
+
+                    string? error = ConversionMetadataStore.Write(path, completed);
+
+                    if (error is null)
+                        recoveryMetadata = completed;
+
+                    return error;
+                }
+                : null,
+
+            // The snapshot the decision was made from, so bytes that changed since are not replaced.
+            ExpectedSourceSha256 = entry.ExpectedSourceSha256,
+        };
+
+        // Conversion checks cancellation between safe installation points.
+        ConversionResult result =
+            EncodingConverter.Convert(
+                path,
+                path,
+                sourceEncoding,
+                targetEncoding,
+                conversionOptions,
+                progress: null,
+                cancellationToken);
+
+        // Propagate cancellation rather than recording it as a file error.
+        if (result.ErrorCode == ConversionErrorCode.Cancelled)
+            throw new OperationCanceledException(cancellationToken);
+
+        // Track what encoding the file contains after the replacement attempt.
+        if (result.ReplacementCommitted == true)
+        {
+            entry.CurrentCharsetLabel =
+                FormatCharsetLabel(targetCharset, targetWriteBom);
+        }
+        else if (result.ReplacementCommitted is null)
+        {
+            // Unknown replacement state must not be decoded using either old or new metadata.
+            entry.CurrentCharsetLabel = UnknownCharset;
+        }
+
+        // The journal needs the installation state even when a later step failed.
+        entry.ReplacementCommitted = result.ReplacementCommitted;
+
+        entry.Result =
+            result.Success
+                ? ConversionRowResult.Converted
+                : ConversionRowResult.Error;
+
+        if (!result.Success)
+        {
+            entry.Diagnostic = $"{result.ErrorCode}: {result.ErrorMessage}";
+            entry.ReasonCode = result.ErrorCode.ToString();
+        }
+    }
+
+    private static bool IsUtf16OrUtf32(Encoding encoding) =>
+        encoding.CodePage is 1200 or 1201 or 12000 or 12001;
+
+    /// <summary>
+    /// Writes recovery metadata only after output verification and before installation.
+    /// </summary>
+    /// <remarks>
+    /// Called after output verification and before installation so metadata failure leaves
+    /// the original file intact.
+    /// </remarks>
+    private static string? PrepareConversionMetadata(
+        string path,
+        ConversionRecord record,
+        ConversionReportEntry entry,
+        out ConversionMetadata? metadata)
+    {
+        metadata = null;
+        string backupPath = path + ".bak";
+
+        string backupHash;
+
+        try
+        {
+            backupHash = ConversionMetadataStore.ComputeSha256(backupPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return $"the backup at '{backupPath}' could not be read: {ex.Message}";
+        }
+
+        // A backup is useful only if it is the exact source this conversion read.
+        string? hashError = ConversionMetadataStore.ValidateRecoveryHashes(
+            record.SourceSha256, backupHash, backupPath);
+
+        if (hashError is not null)
+            return hashError;
+
+        // Record the verified output rather than a later reread of the path.
+        entry.OutputSha256 = record.OutputSha256;
+
+        var prepared = new ConversionMetadata
+        {
+            ConversionId = Guid.NewGuid().ToString("D"),
+            ConversionTimestampUtc =
+                DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            EcVersion = typeof(ScanEngine).Assembly.GetName().Version?.ToString()
+                        ?? "unknown",
+            InstallationState = ConversionInstallationState.Prepared,
+            OriginalPath = path,
+            OriginalSize = record.SourceBytes,
+            OriginalSha256 = record.SourceSha256,
+            BackupPath = backupPath,
+            BackupSha256 = backupHash,
+            ExpectedOutputSha256 = record.OutputSha256,
+            // The recovery key is the codec that actually read the source.
+            SourceEncodingId = record.SourceCodePage,
+            SourceEncodingName = record.SourceEncoding,
+            SourceEncodingMode = entry.SourceEncodingWasSpecified
+                ? SourceEncodingMode.Explicit
+                : SourceEncodingMode.Detected,
+            SourceHasBom = record.SourceHasBom,
+
+            // Provenance is null when detection did not run.
+            DetectedEncodingId = TextEncoding.ResolveCodePageOrNull(entry.DetectedEncodingLabel),
+            DetectedEncodingName = entry.DetectedEncodingLabel,
+
+            TargetEncodingId = record.TargetCodePage,
+            TargetEncodingName = record.TargetEncoding,
+            TargetHasBom = record.TargetHasBom,
+            SourceTextSha256 = record.SourceTextSha256,
+            OutputTextSha256 = record.OutputTextSha256,
+            UnicodeScalars = record.UnicodeScalars,
+        };
+
+        string? error = ConversionMetadataStore.Write(path, prepared);
+
+        if (error is null)
+            metadata = prepared;
+
+        return error;
+    }
+
+    /// <summary>Detects a repeated leading BOM before a backup is created.</summary>
+    private static bool HasMultipleLeadingPreambles(string path, Encoding encoding)
+    {
+        byte[] preamble = encoding.GetPreamble();
+
+        if (preamble.Length == 0)
+            return false;
+
+        byte[] prefix = new byte[preamble.Length * 2];
+
+        try
+        {
+            using FileStream stream = new(
+                path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                prefix.Length, FileOptions.SequentialScan);
+
+            int read = stream.ReadAtLeast(
+                prefix, prefix.Length, throwOnEndOfStream: false);
+
+            return read == prefix.Length
+                   && prefix.AsSpan(0, preamble.Length).SequenceEqual(preamble)
+                   && prefix.AsSpan(preamble.Length, preamble.Length).SequenceEqual(preamble);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // This is an early diagnostic only; the normal conversion path reports the
+            // actual read or backup failure on the original entry.
+            return false;
+        }
+    }
+
+    /// <summary>Creates a durable backup before conversion can replace the source.</summary>
+    /// <remarks>
+    /// The bytes are hashed as they are staged. When they no longer match the snapshot the
+    /// decision was made on, the existing backup and its recovery record are left in place:
+    /// replacing them would discard an earlier restore point for a conversion the converter
+    /// then refuses. This covers a change made before the backup is staged, not one made
+    /// after it.
+    /// </remarks>
+    /// <param name="path">The source file.</param>
+    /// <param name="expectedSha256">
+    /// The approved snapshot's hash, or <see langword="null"/> when no snapshot is bound.
+    /// </param>
+    /// <returns>
+    /// <see langword="false"/> when the staged bytes did not match and nothing was replaced.
+    /// </returns>
+    private static bool CreateBackup(string path, string? expectedSha256)
+    {
+        string? directory = Path.GetDirectoryName(path);
+
+        if (string.IsNullOrEmpty(directory))
+        {
+            throw new IOException(
+                $"Could not determine a directory for path '{path}'.");
+        }
+
+        // Reuse the existing temp-file naming rule so the backup temp stays out of scans.
+        string tempPath = Path.Combine(
+            directory,
+            $"{Path.GetFileName(path)}.{Guid.NewGuid():N}.bak.{EncodingConverter.TempFileSuffix}");
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(EncodingConverter.DefaultBufferSize);
+
+        try
+        {
+            string stagedSha256;
+
+            using (FileStream source = new(
+                       path,
+                       FileMode.Open,
+                       FileAccess.Read,
+                       FileShare.Read,
+                       EncodingConverter.DefaultBufferSize,
+                       FileOptions.SequentialScan))
+            using (FileStream destination = new(
+                       tempPath,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None,
+                       EncodingConverter.DefaultBufferSize,
+                       FileOptions.SequentialScan))
+            using (IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+            {
+                int read;
+
+                while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    hash.AppendData(buffer, 0, read);
+                    destination.Write(buffer, 0, read);
+                }
+
+                destination.Flush(flushToDisk: true);
+                stagedSha256 = Convert.ToHexStringLower(hash.GetHashAndReset());
+            }
+
+            if (expectedSha256 is not null &&
+                !string.Equals(stagedSha256, expectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // Never leave old metadata describing a newly replaced backup.
+            ConversionMetadataStore.RemoveBeforeBackupReplacement(path);
+
+            EncodingConverter.AtomicReplaceForBackup(tempPath, path + ".bak");
+
+            return true;
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch (Exception ex) when (
+                ex is IOException or UnauthorizedAccessException)
+            {
+                // Cleanup failure does not invalidate the completed backup.
+            }
+
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    #endregion
+
+
+    #region Bounded Parallel Execution
+
+    /// <summary>
+    /// Processes items with bounded parallelism and isolates per-file errors.
+    /// Cancellation propagates normally.
+    /// </summary>
+    /// <remarks>
+    /// Internal rather than private so the isolation itself can be tested. No file can be
+    /// made to throw the exceptions this has to survive - that is what makes them the
+    /// dangerous ones - so the only way to prove one file's failure stays one row is to
+    /// hand it a <paramref name="processItem"/> that throws.
+    /// </remarks>
+    internal static void RunParallel<T>(
+        IEnumerable<T> items,
+        int maxParallelism,
+        Func<T, string> getPath,
+        Func<T, ConversionReportEntry?> processItem,
+        Action<ConversionReportEntry> onEntry,
+        CancellationToken cancellationToken)
+    {
+        var parallelOptions = new ParallelOptions
+        {
+            MaxDegreeOfParallelism =
+                Math.Max(1, maxParallelism),
+
+            CancellationToken =
+                cancellationToken,
+        };
+
+        Parallel.ForEach(
+            items,
+            parallelOptions,
+            item =>
+            {
+                ConversionReportEntry? entry;
+
+                try
+                {
+                    entry = processItem(item);
+                }
+                // One file's failure is one row. This used to name four exception types,
+                // so anything else - a SecurityException the enumerator did not surface, a
+                // regex timeout, a defect in this code - escaped Parallel.ForEach as an
+                // AggregateException and took every file the run had not reached yet with
+                // it. Cancellation still propagates, and OutOfMemoryException is left alone
+                // because carrying on after it would be pretending to process, not
+                // processing.
+                catch (Exception ex) when (
+                    ex is not OperationCanceledException and not OutOfMemoryException)
+                {
+                    if (item is ConversionReportEntry existing)
+                    {
+                        // Keep the caller's entry authoritative when conversion fails.
+                        existing.Result = ConversionRowResult.Error;
+                        existing.Action = PlannedAction.Refuse;
+                        existing.SourceInterpretation = SourceInterpretation.NotApplicable;
+                        existing.ReplacementCommitted = false;
+                        existing.ReasonCode = ConversionReasonCodes.ScanFailed;
+                        existing.Diagnostic = ex.Message;
+                        entry = existing;
+                    }
+                    else
+                    {
+                        entry = new ConversionReportEntry
+                        {
+                            FilePath = getPath(item),
+                            SourceEncoding = "(Error)",
+                            TargetEncoding = "(Error)",
+                            Result = ConversionRowResult.Error,
+                            Action = PlannedAction.Refuse,
+                            SourceInterpretation = SourceInterpretation.NotApplicable,
+                            ReplacementCommitted = false,
+                            ReasonCode = ConversionReasonCodes.ScanFailed,
+                            Diagnostic = ex.Message,
+                        };
+                    }
+                }
+
+                if (entry is not null)
+                    onEntry(entry);
+            });
+    }
+
+    #endregion
+}

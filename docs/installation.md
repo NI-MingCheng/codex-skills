@@ -1,6 +1,6 @@
 # 安装项目编码技能
 
-此仓库当前只有 `project-encoding` 一个技能，工具单独放在 `tools/`。前提是已经安装 PowerShell 7 和 Windows .NET Framework 4.8；不自动安装依赖或修改其他 Codex 设置。
+此仓库当前只有 `project-encoding` 一个技能，工具单独放在 `tools/`。前提是已经安装 PowerShell 7 和 .NET 10 Desktop Runtime；不自动安装依赖或修改其他 Codex 设置。
 
 ## 安装目录
 
@@ -25,6 +25,8 @@ $cli = Join-Path $repoRoot 'tools/EncodingChecker-master/App/EncodingChecker.Cli
 
 ## 构建与验证
 
-工具的独立 CLI project 位于 `tools/EncodingChecker-master/sources/EncodingChecker.Cli/EncodingChecker.Cli.csproj`，使用 MSBuild 和 .NET Framework 4.8 reference assemblies。构建和测试命令见 [工具文档](../tools/EncodingChecker-master/docs/cli-workflow.md)。
+CLI project 位于 `tools/EncodingChecker-master/sources/EncodingChecker.Agent/EncodingChecker.Agent.csproj`，使用 .NET 10 SDK，复用上游应用程序集。构建和测试命令见 [工具文档](../tools/EncodingChecker-master/docs/AGENT-CLI.md)。
+
+GitHub 是发布和同步来源；本地 checkout 可放在自己选择的源码目录，exe 可独立放到预装工具目录。云端任务可以直接修改 GitHub 仓库，不要求本机保留 checkout；本机运行仍需要安装 skill 和 exe。云端环境与本机安装分开维护。仓库的 Windows CI 在 push/PR 时构建、运行测试并验证两个 exe 的打包接口；本机安装内容需要另行部署更新。
 
 第三方现有 source 的 encoding、BOM 和 EOL 保持原样，Git attributes 不对 tools/ 做换行归一化。

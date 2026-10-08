@@ -1,0 +1,213 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+  # A rehearsal. Runs every step a real release runs except the publish, so a
+  # change to this file can be proven before a tag depends on it.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # A release must not be able to claim detector parity that was never checked at
+  # the commit being tagged.
+  parity:
+    uses: ./.github/workflows/detector-parity.yml
+
+  release:
+    needs: parity
+    runs-on: windows-latest
+
+    env:
+      CODE_SIGNING_CERT: ${{ secrets.CODE_SIGNING_CERT }}
+      CODE_SIGNING_CERT_PASSWORD: ${{ secrets.CODE_SIGNING_CERT_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      # One step decides what version this run is for, so nothing later has to
+      # reason about whether a tag exists.
+      - name: Resolve the version under test
+        id: version
+        shell: pwsh
+        run: |
+          $isTag = "${{ github.ref }}".StartsWith("refs/tags/")
+
+          if ($isTag) {
+            $resolved = "${{ github.ref_name }}" -replace '^v', ''
+          }
+          else {
+            $assemblyInfo =
+              Get-Content "sources\EncodingChecker\Properties\AssemblyInfo.cs" -Raw
+            $pattern = '(?m)^\s*\[assembly:\s*AssemblyVersion\("(?<version>[^"]+)"\)\]'
+            $match = [regex]::Match($assemblyInfo, $pattern)
+
+            if (-not $match.Success) {
+              throw "Could not find [AssemblyVersion] in AssemblyInfo.cs."
+            }
+
+            $parsed = [Version]$match.Groups['version'].Value
+            $resolved = "$($parsed.Major).$($parsed.Minor).$([Math]::Max($parsed.Build, 0))"
+          }
+
+          "version=$resolved" >> $env:GITHUB_OUTPUT
+          "is_tag=$($isTag.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          "version=$resolved  is_tag=$isTag"
+
+      # Exists only to catch a tag that disagrees with the source, so it has
+      # nothing to check when there is no tag.
+      - name: Verify release version
+        if: steps.version.outputs.is_tag == 'true'
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}" -replace '^v', ''
+          $assemblyInfo = Get-Content "sources\EncodingChecker\Properties\AssemblyInfo.cs" -Raw
+
+          foreach ($attribute in @("AssemblyVersion", "AssemblyFileVersion")) {
+            $pattern = '(?m)^\s*\[assembly:\s*' + [regex]::Escape($attribute) + '\("(?<version>[^"]+)"\)\]'
+            $match = [regex]::Match($assemblyInfo, $pattern)
+
+            if (-not $match.Success) {
+              throw "Could not find [$attribute] in AssemblyInfo.cs."
+            }
+
+            $assemblyVersion = [Version]$match.Groups['version'].Value
+            $displayVersion = "$($assemblyVersion.Major).$($assemblyVersion.Minor).$([Math]::Max($assemblyVersion.Build, 0))"
+
+            if ($displayVersion -ne $tagVersion) {
+              throw "$attribute '$($assemblyVersion.ToString())' does not match release tag '${{ github.ref_name }}'."
+            }
+          }
+
+      - name: Build
+        run: dotnet build sources\EncodingChecker.sln --configuration Release
+
+      - name: Test
+        run: dotnet test sources\EncodingChecker.sln --configuration Release --no-build
+
+      - name: Verify built display version
+        shell: pwsh
+        run: |
+          $expected = "${{ steps.version.outputs.version }}"
+          $actual = (& dotnet "sources\EncodingChecker\bin\Release\net10.0-windows\EncodingChecker.dll" --version).Trim()
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "EncodingChecker --version failed with exit code $LASTEXITCODE."
+          }
+
+          if ($actual -ne $expected) {
+            throw "Built EncodingChecker reports version '$actual', expected '$expected'."
+          }
+
+      - name: Publish framework-dependent single-file executable
+        run: dotnet publish sources\EncodingChecker\EncodingChecker.csproj -p:PublishProfile=FolderProfile
+
+      - name: Publish self-contained single-file executable
+        run: dotnet publish sources\EncodingChecker\EncodingChecker.csproj -p:PublishProfile=SelfContainedRelease
+
+      - name: Code-sign executables
+        id: sign
+        if: ${{ env.CODE_SIGNING_CERT != '' && env.CODE_SIGNING_CERT_PASSWORD != '' }}
+        shell: pwsh
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:CODE_SIGNING_CERT))
+
+          try {
+            $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" |
+              Where-Object { $_.FullName -like "*\x64\*" } |
+              Select-Object -First 1 -ExpandProperty FullName
+
+            if (-not $signtool) {
+              throw "signtool.exe not found on this runner image."
+            }
+
+            & $signtool sign /f $certPath /p $env:CODE_SIGNING_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              "sources\EncodingChecker\bin\Release\net10.0-windows\publish\win-x64\EncodingChecker.exe" `
+              "sources\EncodingChecker\bin\Release\net10.0-windows\publish\win-x64-selfcontained\EncodingChecker.exe"
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "signtool exited with code $LASTEXITCODE."
+            }
+          } finally {
+            Remove-Item $certPath -Force -ErrorAction SilentlyContinue
+          }
+
+      # Drives the published framework-dependent executable rather than a build of
+      # the same commit, so what is verified is a file that ships. A failure here
+      # fails the job, and no release is created.
+      #
+      # Placed after the signing step because signing rewrites the file: verifying
+      # the unsigned one would leave the shipped binary undriven. Signing is
+      # conditional on the certificate secrets, so when they are absent this drives
+      # an unsigned file.
+      #
+      # The self-contained executable is packaged without being driven.
+      - name: Drive the GUI smoke suite
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $app = "sources\EncodingChecker\bin\Release\net10.0-windows\publish\win-x64\EncodingChecker.exe"
+          $suite = "sources\EncodingChecker.GuiSmoke\bin\Release\net10.0-windows\EncodingChecker.GuiSmoke.exe"
+
+          & $suite --app $app --output "$env:RUNNER_TEMP\gui-smoke"
+
+          $suiteExitCode = $LASTEXITCODE
+          & "sources\EncodingChecker.GuiSmoke\Write-GateSummary.ps1" -OutputDirectory "$env:RUNNER_TEMP\gui-smoke" -SuiteExitCode $suiteExitCode
+          exit $LASTEXITCODE
+
+      - name: Keep the GUI smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-smoke-evidence
+          path: ${{ runner.temp }}/gui-smoke
+          if-no-files-found: error
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          Compress-Archive -Path "sources\EncodingChecker\bin\Release\net10.0-windows\publish\win-x64\*" -DestinationPath "EncodingChecker-$version-framework-dependent.zip"
+          Compress-Archive -Path "sources\EncodingChecker\bin\Release\net10.0-windows\publish\win-x64-selfcontained\*" -DestinationPath "EncodingChecker-$version-win-x64-self-contained.zip"
+
+      # The publish, and the only step a rehearsal must never reach. It requires a
+      # tag *push*, not merely a tag ref: workflow_dispatch can be pointed at a tag
+      # from the dropdown, and a run started by hand must never publish.
+      - name: Create GitHub release
+        if: github.event_name == 'push' && steps.version.outputs.is_tag == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}"
+          EncodingChecker-*-framework-dependent.zip EncodingChecker-*-win-x64-self-contained.zip
+          --title "${{ github.ref_name }}"
+          --generate-notes
+
+      - name: Say plainly that nothing was published
+        if: github.event_name != 'push'
+        shell: pwsh
+        run: |
+          # Read what the signing step did rather than deciding again from the secrets:
+          # two derivations of one fact can disagree, and this one is the report.
+          $signing = switch ('${{ steps.sign.outcome }}') {
+            'success' { 'signed' }
+            'skipped' { 'not signed; the signing step was skipped' }
+            default   { "not signed - the signing step reported '$_'" }
+          }
+
+          $summary = "REHEARSAL for version ${{ steps.version.outputs.version }} - " +
+                     "built, tested, GUI-checked and packaged; executables $signing. " +
+                     "No release was created."
+          $summary
+          "## Release rehearsal" >> $env:GITHUB_STEP_SUMMARY
+          "" >> $env:GITHUB_STEP_SUMMARY
+          $summary >> $env:GITHUB_STEP_SUMMARY

@@ -1,0 +1,517 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using System.Text;
+
+namespace EncodingChecker;
+
+internal static partial class Program
+{
+    // Internal so tests can cover parsing directly.
+    internal static bool TryParseArguments(
+        string[] args,
+        out CliOptions options,
+        [NotNullWhen(false)] out string? error)
+    {
+        options = new CliOptions();
+        error = null;
+
+        for (int i = 0; i < args.Length; i++)
+        {
+            string flag = args[i].TrimStart('-');
+
+            bool TakeValue(
+                string optionName,
+                [NotNullWhen(true)] out string? v,
+                [NotNullWhen(false)] out string? err)
+            {
+                if (TryTakeValue(args, ref i, out v))
+                {
+                    err = null;
+                    return true;
+                }
+
+                err = $"{optionName} requires a value.";
+                return false;
+            }
+
+            switch (flag.ToLowerInvariant())
+            {
+                case "basepath":
+                    if (!TakeValue("-BasePath", out options.BasePath, out error))
+                        return false;
+                    break;
+
+                case "include":
+                    if (!TakeValue("-Include", out string? include, out error))
+                        return false;
+
+                    // Repeated options accumulate patterns.
+                    options.IncludeSpecified = true;
+                    options.Include.AddRange(SplitCommaList(include));
+                    break;
+
+                case "exclude":
+                    if (!TakeValue("-Exclude", out string? exclude, out error))
+                        return false;
+
+                    // Repeated options accumulate patterns.
+                    options.ExcludeSpecified = true;
+                    options.Exclude.AddRange(SplitCommaList(exclude));
+                    break;
+
+                case "target":
+                    if (!TakeValue("-Target", out options.Target, out error))
+                        return false;
+                    break;
+
+                case "from":
+                    if (!TakeValue("-From", out options.From, out error))
+                        return false;
+                    break;
+
+                case "plan":
+                    if (!TakeValue("-Plan", out options.PlanPath, out error))
+                        return false;
+                    break;
+
+                case "journal":
+                    if (!TakeValue("-Journal", out options.JournalPath, out error))
+                        return false;
+                    break;
+
+                case "apply":
+                    if (!TakeValue("-Apply", out options.ApplyPath, out error))
+                        return false;
+                    break;
+
+                case "validate":
+                    if (!TakeValue("-Validate", out options.ValidateCharsets, out error))
+                        return false;
+                    break;
+
+                case "detectonly":
+                    options.DetectOnly = true;
+                    break;
+
+                case "report":
+                    if (!TakeValue("-Report", out options.ReportPath, out error))
+                        return false;
+                    break;
+
+                case "maxparallelism":
+                    if (!TryTakeValue(
+                            args,
+                            ref i,
+                            out string? maxParallelismText) ||
+                        !int.TryParse(
+                            maxParallelismText,
+                            out int maxParallelism) ||
+                        maxParallelism <= 0)
+                    {
+                        error =
+                            "-MaxParallelism requires a positive integer.";
+                        return false;
+                    }
+
+                    options.MaxParallelism = maxParallelism;
+                    break;
+
+                case "failonchanges":
+                    options.FailOnChanges = true;
+                    break;
+
+                case "whatif":
+                    options.WhatIf = true;
+                    break;
+
+                case "backup":
+                    options.Backup = true;
+                    break;
+
+                case "quiet":
+                    options.Quiet = true;
+                    break;
+
+                case "verbose":
+                    options.Verbose = true;
+                    break;
+
+                default:
+                    error = $"Unrecognized argument: {args[i]}";
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Lets TryTakeValue distinguish a missing value from a following option.
+    private static readonly HashSet<string> KnownFlagNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "basepath", "include", "exclude", "target", "from", "plan", "apply",
+            "journal",
+            "validate",
+            "detectonly", "report", "maxparallelism", "failonchanges",
+            "whatif", "backup", "quiet", "verbose",
+        };
+
+    // Internal so tests can cover parsing directly.
+    internal static bool TryTakeValue(
+        string[] args,
+        ref int i,
+        [NotNullWhen(true)] out string? value)
+    {
+        if (i + 1 >= args.Length)
+        {
+            value = null;
+            return false;
+        }
+
+        string candidate = args[i + 1];
+
+        if (candidate.StartsWith('-') &&
+            KnownFlagNames.Contains(candidate.TrimStart('-')))
+        {
+            value = null;
+            return false;
+        }
+
+        // Later validation treats blank strings as absent. Reject them here so safety
+        // options such as -Plan and -Apply cannot fall through to direct conversion.
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            value = null;
+            return false;
+        }
+
+        value = args[++i];
+        return true;
+    }
+
+    private static List<string> SplitCommaList(string value) =>
+    [
+        .. value.Split(
+            ',',
+            StringSplitOptions.RemoveEmptyEntries |
+            StringSplitOptions.TrimEntries)
+    ];
+
+    // Internal so tests can cover validation directly.
+    internal static bool TryValidateOptions(
+        CliOptions options,
+        [NotNullWhen(false)] out string? error)
+    {
+        switch (options)
+        {
+            // An empty filter must not widen a scripted scan to every file.
+            case { IncludeSpecified: true, Include.Count: 0 }:
+                error = "-Include was given but contains no usable pattern. Omit "
+                        + "-Include to process every file.";
+                return false;
+            case { ExcludeSpecified: true, Exclude.Count: 0 }:
+                error = "-Exclude was given but contains no usable pattern. Omit "
+                        + "-Exclude to process every file.";
+                return false;
+            // Neither output mode may silently override the other.
+            case { Quiet: true, Verbose: true }:
+                error = "-Quiet and -Verbose ask for opposite amounts of output; "
+                        + "supply only one.";
+                return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.PlanPath) &&
+            !string.IsNullOrWhiteSpace(options.ApplyPath))
+        {
+            error = "-Plan writes a plan and -Apply executes one; use them in "
+                    + "separate runs so the plan can be reviewed in between.";
+            return false;
+        }
+
+        if (!TryValidateDistinctCommandPaths(options, out error))
+            return false;
+
+        if (!TryValidateOutputSuffixes(options, out error))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(options.ApplyPath))
+        {
+            if (!File.Exists(options.ApplyPath))
+            {
+                error = $"The plan file '{options.ApplyPath}' does not exist.";
+                return false;
+            }
+
+            string? overridden = ApplyConflict(options);
+
+            if (overridden != null)
+            {
+                error = overridden == "-WhatIf"
+                    ? "-WhatIf cannot be combined with -Apply. The saved plan is the "
+                      + "preview; applying it performs the reviewed writes."
+                    : $"{overridden} cannot be combined with -Apply. A plan already "
+                      + "records its scope and conversion settings; re-run -Plan to "
+                      + "change them.";
+                return false;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.JournalPath) &&
+            (options.DetectOnly || !string.IsNullOrWhiteSpace(options.ValidateCharsets)))
+        {
+            error = "-Journal records what a conversion did; it cannot be combined "
+                    + "with -DetectOnly or -Validate. Use -Report for those.";
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.PlanPath) &&
+            (options.DetectOnly || !string.IsNullOrWhiteSpace(options.ValidateCharsets)))
+        {
+            error = "-Plan previews a conversion; it cannot be combined with "
+                    + "-DetectOnly or -Validate.";
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.From))
+        {
+            if (options.DetectOnly || !string.IsNullOrWhiteSpace(options.ValidateCharsets))
+            {
+                error = "-From applies to conversion only; it cannot be combined with "
+                        + "-DetectOnly or -Validate, which report what the detector finds.";
+                return false;
+            }
+
+            try
+            {
+                Encoding.GetEncoding(options.From!);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+            {
+                error = ex is NotSupportedException
+                    ? $"'{options.From}' is recognized but is not supported by this .NET runtime."
+                    : $"'{options.From}' is not a recognized encoding.";
+                return false;
+            }
+        }
+
+        // An applied plan supplies its own scope and conversion settings.
+        if (!string.IsNullOrWhiteSpace(options.ApplyPath))
+        {
+            error = null;
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.BasePath))
+        {
+            error = "-BasePath is required.";
+            return false;
+        }
+
+        if (!Directory.Exists(options.BasePath))
+        {
+            error =
+                $"The directory '{options.BasePath}' does not exist.";
+            return false;
+        }
+
+        if (DirectoryTraversal.IsReparsePointDirectory(options.BasePath))
+        {
+            error =
+                $"'{options.BasePath}' is a symbolic link or other reparse point; " +
+                "-BasePath must be a real directory.";
+            return false;
+        }
+
+        if (options is
+            {
+                DetectOnly: true,
+                ValidateCharsets: not null
+            })
+        {
+            error =
+                "-DetectOnly cannot be combined with -Validate.";
+            return false;
+        }
+
+        // Validate and Convert are separate modes.
+        if (options is
+            {
+                ValidateCharsets: not null,
+                Target: not null
+            })
+        {
+            error =
+                "-Validate cannot be combined with -Target.";
+            return false;
+        }
+
+        // Reject ignored write options so scripts cannot mistake inspection for conversion.
+        if (options.DetectOnly || options.ValidateCharsets is not null)
+        {
+            string mode = options.DetectOnly ? "-DetectOnly" : "-Validate";
+
+            string? ignored =
+                options.Target is not null ? "-Target"
+                : options.WhatIf ? "-WhatIf"
+                : options.Backup ? "-Backup"
+                : null;
+
+            if (ignored is not null)
+            {
+                error = $"{ignored} only affects conversion and cannot be used with "
+                        + $"{mode}, which does not modify files.";
+                return false;
+            }
+        }
+
+        if (options.ValidateCharsets is not null &&
+            SplitCommaList(options.ValidateCharsets).Count == 0)
+        {
+            error = "-Validate requires at least one charset.";
+            return false;
+        }
+
+        bool isConvertMode =
+            options is
+            {
+                DetectOnly: false,
+                ValidateCharsets: null
+            };
+
+        if (isConvertMode &&
+            string.IsNullOrWhiteSpace(options.Target))
+        {
+            error =
+                "-Target is required (Convert is the default mode; " +
+                "use -Validate or -DetectOnly for read-only modes).";
+            return false;
+        }
+
+        if (isConvertMode &&
+            !string.IsNullOrWhiteSpace(options.Target))
+        {
+            ScanEngine.ParseCharsetLabel(
+                options.Target!,
+                out string baseCharset,
+                out _);
+
+            try
+            {
+                Encoding.GetEncoding(baseCharset);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+            {
+                error = ex is NotSupportedException
+                    ? $"'{options.Target}' is recognized but is not supported by this .NET runtime."
+                    : $"'{options.Target}' is not a recognized encoding.";
+                return false;
+            }
+        }
+
+        error = null;
+        return true;
+    }
+
+    /// <summary>Prevents command files from silently overwriting one another.</summary>
+    private static bool TryValidateDistinctCommandPaths(
+        CliOptions options,
+        [NotNullWhen(false)] out string? error)
+    {
+        (string Name, string? Path)[] candidates =
+        [
+            ("-Plan", options.PlanPath),
+            ("-Apply", options.ApplyPath),
+            ("-Journal", options.JournalPath),
+            ("-Report", options.ReportPath),
+        ];
+
+        var seen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach ((string name, string? path) in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+
+            string fullPath;
+
+            try
+            {
+                fullPath = Path.GetFullPath(path);
+            }
+            catch (Exception ex) when (
+                ex is IOException or ArgumentException or NotSupportedException)
+            {
+                error = $"{name} contains an invalid path: {ex.Message}";
+                return false;
+            }
+
+            if (seen.TryGetValue(fullPath, out string? first))
+            {
+                error = $"{first} and {name} resolve to the same file. Use separate paths.";
+                return false;
+            }
+
+            seen.Add(fullPath, name);
+        }
+
+        error = null;
+        return true;
+    }
+
+    /// <summary>Prevents command output from replacing EC recovery artifacts.</summary>
+    private static bool TryValidateOutputSuffixes(
+        CliOptions options,
+        [NotNullWhen(false)] out string? error)
+    {
+        (string Name, string? Path)[] outputs =
+        [
+            ("-Plan", options.PlanPath),
+            ("-Journal", options.JournalPath),
+            ("-Report", options.ReportPath),
+        ];
+
+        foreach ((string name, string? path) in outputs)
+        {
+            if (path is null)
+                continue;
+
+            // Windows removes trailing spaces and periods from ordinary file paths.
+            // Check the resolved name so "file.bak." cannot alias "file.bak".
+            string fullPath = Path.GetFullPath(path);
+
+            if (!DirectoryTraversal.HasReservedArtifactSuffix(fullPath))
+                continue;
+
+            error = $"{name} uses an EC-reserved artifact suffix. "
+                    + "Choose a path that cannot be mistaken for a backup, recovery "
+                    + "record, or temporary conversion file.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Returns the first option that an applied plan cannot honor. Journal output,
+    /// parallelism, and quiet output remain valid apply-time controls.
+    /// </summary>
+    private static string? ApplyConflict(CliOptions options)
+    {
+        if (options.BasePath != null) return "-BasePath";
+        if (options.Include.Count > 0) return "-Include";
+        if (options.Exclude.Count > 0) return "-Exclude";
+        if (options.Target != null) return "-Target";
+        if (options.From != null) return "-From";
+        if (options.Backup) return "-Backup";
+        if (options.WhatIf) return "-WhatIf";
+        if (options.DetectOnly) return "-DetectOnly";
+        if (options.ValidateCharsets != null) return "-Validate";
+        if (options.ReportPath != null) return "-Report";
+        if (options.FailOnChanges) return "-FailOnChanges";
+        if (options.Verbose) return "-Verbose";
+        return null;
+    }
+}

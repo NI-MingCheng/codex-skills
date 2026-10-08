@@ -89,5 +89,6 @@
 # Executables
 *.exe             binary
 *.pyc             binary
-# Vendored tool distribution: preserve original source bytes and existing whitespace.
+
+# Vendored distribution: preserve upstream BOM, EOL and existing whitespace.
 * -text -whitespace

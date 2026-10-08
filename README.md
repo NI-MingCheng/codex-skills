@@ -17,7 +17,8 @@ codex-skills/
 │       │   ├── EncodingChecker.exe
 │       │   └── EncodingChecker.Cli.exe
 │       ├── sources/
-│       ├── docs/cli-workflow.md
+│       ├── docs/AGENT-CLI.md
+│       ├── UPSTREAM.md
 │       └── LICENSE
 └── docs/
     └── installation.md
@@ -35,21 +36,24 @@ GBK 与 UTF-8 可以把同一字节解释成不同文本。例如 `C2 A9` 在 GB
 
 ## EncodingChecker CLI
 
-**CLI 已加入**，是独立 Console project，原 GUI 仍保留。`App/EncodingChecker.Cli.exe` 输出 UTF-8 JSON，支持：
+工具基于 [amrali-eg/EncodingChecker v3.15.1](https://github.com/amrali-eg/EncodingChecker/tree/v3.15.1)。保留上游 GUI、原 CLI、转换和校验引擎，增加独立 Console 入口 `App/EncodingChecker.Cli.exe`，输出 UTF-8 JSON：
 
 ```text
 probe     检查单个文件，展示候选
 scan      批量只读扫描，保存编码快照
 confirm   按已确认的约定更新快照，不改变原文件
 convert   默认 dry-run；--apply 执行已授权的 UTF-8 转换
+apply     执行已经审核的上游格式 plan
 rollback  校验 hash 后恢复原字节
 ```
 
-完整接口与行为边界见 [CLI 文档](tools/EncodingChecker-master/docs/cli-workflow.md)。工具源码、原检测库和许可证都保留，构建缓存、测试工作目录和调试文件不入库。
+agent 快照区分候选与确认，支持默认 codec 和逐文件例外；完整校验、hash、BOM、EOL 使用分块读取。明确 GBK 的双合法字节可按确认选择处理。转换复用上游 plan/apply、备份和 recovery metadata，回滚直接恢复原字节。
+
+接口见 [Agent CLI](tools/EncodingChecker-master/docs/AGENT-CLI.md)，版本来源与小范围改动见 [UPSTREAM.md](tools/EncodingChecker-master/UPSTREAM.md)。构建缓存、测试工作目录和调试文件不入库。
 
 ## 使用
 
-依赖预先安装的 PowerShell 7；运行 CLI 需要 Windows .NET Framework 4.8。不会自动安装系统依赖、修改 PATH、覆盖全局 AGENTS.md 或配置 hooks/MCP。
+依赖预先安装的 PowerShell 7 和 **.NET 10 Desktop Runtime**。不自动安装系统依赖、修改 PATH 或覆盖其他全局规则。
 
 安装或更新步骤见 [安装说明](docs/installation.md)。可直接给 Codex 这条指令，并指定本机仓库和工具路径：
 

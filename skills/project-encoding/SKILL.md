@@ -7,7 +7,7 @@ description: Scan or diagnose unknown and mixed project encodings using the inst
 
 普通已确认 UTF-8 项目直接使用原生工具。只有出现解码异常、接手已知 legacy/混合编码工程，或用户要求检查/转换编码时才使用本技能。默认只读扫描，默认不转码。
 
-预置环境是 pwsh 7 和 EncodingChecker CLI；不自动安装或修改 shell、locale、profile。本仓库的工具位于 `tools/EncodingChecker-master/App/EncodingChecker.Cli.exe`。按实际安装位置设置 `$cli` 的绝对路径；技能独立安装时，使用预装工具的实际路径。
+预置环境是 pwsh 7、.NET 10 Desktop Runtime 和 EncodingChecker agent CLI；不自动安装或修改 shell、locale、profile。本仓库的工具位于 `tools/EncodingChecker-master/App/EncodingChecker.Cli.exe`，使用上游 v3.15.1 的转换引擎。按实际安装位置设置 `$cli` 的绝对路径；技能独立安装时，使用预装工具的实际路径。
 
 ```powershell
 # $repoRoot 是本仓库的实际路径；独立安装时直接设置预装 CLI 的绝对路径。
@@ -15,7 +15,7 @@ $cli = Join-Path $repoRoot 'tools/EncodingChecker-master/App/EncodingChecker.Cli
 & $cli scan --root $root --output (Join-Path $root 'docs/encoding-snapshot.json')
 ```
 
-快照记录每个文件的编码、BOM、EOL、hash 和确认状态。BOM、已明确的项目约定或用户选择可作为确认依据；检测器的 confidence 和合法 UTF-8 字节只是候选依据。ASCII 内容兼容多种编码；GBK 与 UTF-8 也可能把同一字节读成不同文本。
+快照 schema 为 2，记录文件的编码、BOM、EOL、hash 和确认状态。检查 complete、coverage 和 warnings；读取失败不能当作已完整扫描。BOM、明确项目约定或用户选择可确认编码；合法 UTF-8 字节及检测器建议只是候选。ASCII 兼容多种编码；GBK 与 UTF-8 也可能把同一字节读成不同文本。
 
 需要确认时，用 `probe` 查看候选，向用户集中询问项目/目录约定或少量例外，不要逐个文件重复提问。已在对话中明确编码的文件无需再询问。CLI 提供：
 

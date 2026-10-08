@@ -263,6 +263,9 @@ publish/
 # Note: Comment the next line if you want to checkin your web deploy settings,
 # but database connection strings (with potential passwords) will be unencrypted
 *.pubxml
+# Used by the release workflow; contains no secrets.
+!sources/EncodingChecker/Properties/PublishProfiles/FolderProfile.pubxml
+!sources/EncodingChecker/Properties/PublishProfiles/SelfContainedRelease.pubxml
 *.publishproj
 
 # Microsoft Azure Web App publish settings. Comment the next line if you want to
@@ -437,3 +440,11 @@ MigrationBackup/
 .ionide/
 
 # End of https://www.toptal.com/developers/gitignore/api/visualstudio,visualstudiocode,windows,linux,macos
+
+# Orphaned local state from the retired manual GUI smoke test (tools/gui-smoke-test.py).
+# Safe to delete; kept ignored so a stale run does not dirty the tree.
+tools/smoke-state-*.json
+
+# Claude Code local settings: machine-specific permission overrides, never shared.
+**/.claude/settings.local.json
+

@@ -1,0 +1,1584 @@
+# Defect backlog
+
+This is the current ledger for defects and review findings in EncodingChecker.
+It is organised by status, not discovery date, so the open work is visible in
+one place. Longer evidence and history follow the ledger.
+
+<!-- backlog-counts total=87 fixed=76 open=7 not-reproduced=1 withdrawn=1 intentional-behavior=1 decision=1 -->
+
+**Derived count: 87 findings — 76 fixed, 7 open, 1 not reproduced, 1 withdrawn,
+1 intentional behavior, and 1 design decision.** Recompute and check these
+figures with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File docs/Test-DefectBacklog.ps1
+```
+
+The checker reads the tables below, verifies that IDs are unique and statuses
+known, requires both impact and likelihood for every open finding, and confirms
+each row links to its own detail heading. Why that exact command, rather than any
+other, is explained at the top of the script.
+
+## What the statuses mean
+
+- **Fixed** - the problem has been corrected, and a current source location,
+  regression test or current-build probe shows the correction in place.
+- **Open** - the problem is still possible: the behaviour remains reachable, or
+  a source path to it remains.
+- **Not reproduced** - a current attempt did not trigger it. That is weaker than
+  proof that it cannot happen.
+- **Withdrawn** - later evidence showed the original report was wrong.
+- **Intentional behavior** - the implementation matches a deliberate contract.
+- **Decision** - two defensible approaches exist and a maintainer may reconsider
+  the choice. It is not a product correction.
+
+Two scores are kept apart. **Impact** asks what a user loses if the finding
+occurs. **Likelihood** asks how readily its preconditions arise - not how often
+it is seen in the wild, which nobody here has measured. A severe but constructed
+case and a harmless everyday one need different decisions, and one number cannot
+carry both.
+
+## Canonical ledger
+
+This is the only place that assigns a current status to an individual finding.
+Existing `EC-nn` and `CX-nn` IDs are unchanged. `BL-nn` IDs were assigned during
+the 2026-09-08 reformat to findings that previously had only a sentence.
+
+<!-- backlog-ledger:start -->
+
+### Open findings
+
+| ID | Finding | Status | Impact | Likelihood | Details |
+|---|---|---|---|---|---|
+| EC-20 | A file can change while EC is detecting its encoding | Open | Low | Rare | [EC-20](#ec-20) |
+| CX-06 | EC checks for random-looking data before checking for a BOM | Open | Medium | Theoretical | [CX-06](#cx-06) |
+| BL-05 | Force-closing during a conversion can produce an error on exit | Open | Low | Rare | [BL-05](#bl-05) |
+| BL-19 | ASCII with many NUL bytes can be reported as UTF-16 | Open | Medium | Rare | [BL-19](#bl-19) |
+| BL-20 | Two hard-link names for one file are converted separately | Open | Low | Rare | [BL-20](#bl-20) |
+| BL-21 | Detection can accept a cut-off final character that conversion rejects | Open | Low | Rare | [BL-21](#bl-21) |
+| BL-43 | A file name with an unpaired UTF-16 surrogate cannot be planned or backed up | Open | Low | Rare | [BL-43](#bl-43) |
+
+### Fixed and resolved findings
+
+| ID | Finding | Status | Impact | Likelihood | Details |
+|---|---|---|---|---|---|
+| EC-01 | A saved plan could convert a file it had marked Refused | Fixed | — | — | [EC-01](#ec-01) |
+| EC-02 | Validation could approve a file that conversion would refuse | Fixed | — | — | [EC-02](#ec-02) |
+| EC-03 | The GUI omitted the source-choice advisory | Fixed | — | — | [EC-03](#ec-03) |
+| EC-04 | `-Plan` could exit successfully after scan failures | Fixed | — | — | [EC-04](#ec-04) |
+| BL-01 | Ambiguous BOM-less UTF-32 could be converted under the wrong byte order | Fixed | — | — | [BL-01](#bl-01) |
+| EC-08 | A constructed include pattern could hang a scan indefinitely | Fixed | — | — | [EC-08](#ec-08) |
+| EC-24 | The GUI smoke gate could select in the wrong combo | Fixed | — | — | [EC-24](#ec-24) |
+| EC-25 | The smoke suite never set the main window's target encoding | Fixed | — | — | [EC-25](#ec-25) |
+| EC-26 | The smoke driver trusted an enabled flag that had been seen stale | Fixed | — | — | [EC-26](#ec-26) |
+| EC-27 | The smoke driver read a status line the window had not written yet | Fixed | — | — | [EC-27](#ec-27) |
+| EC-28 | The smoke driver's false blame is contained; the original access loss remains unexplained | Fixed | — | — | [EC-28](#ec-28) |
+| EC-29 | An unreadable review could be mistaken for a missing control | Fixed | — | — | [EC-29](#ec-29) |
+| EC-30 | An inconclusive GUI run discarded the evidence it had already gathered | Fixed | — | — | [EC-30](#ec-30) |
+| EC-31 | The driver did not really wait for owned dialogs to close | Fixed | — | — | [EC-31](#ec-31) |
+| EC-18 | EC repeated a BOM-less UTF-16 safety check unnecessarily | Fixed | — | — | [EC-18](#ec-18) |
+| EC-23 | Plan application assumed a required path existed instead of checking it | Fixed | — | — | [EC-23](#ec-23) |
+| BL-27 | GUI smoke reports could show an empty or misleading build hash | Fixed | — | — | [BL-27](#bl-27) |
+| BL-28 | The GUI CSV report could name detection instead of the source actually used | Fixed | — | — | [BL-28](#bl-28) |
+| BL-29 | Ctrl+C could skip a requested CLI journal | Fixed | — | — | [BL-29](#bl-29) |
+| BL-30 | A verification test stopped before reaching output verification | Fixed | — | — | [BL-30](#bl-30) |
+| BL-31 | Interrupted runs could report unprocessed files as completed work | Fixed | — | — | [BL-31](#bl-31) |
+| BL-32 | A cancelled scan could leave an old CSV without explaining the missing plan | Fixed | — | — | [BL-32](#bl-32) |
+| BL-33 | The GUI CSV export could still call cancelled or stale-plan files Converted | Fixed | — | — | [BL-33](#bl-33) |
+| BL-34 | Repeating a backed-up UTF-8 conversion could replace the original backup once the text was ASCII | Fixed | — | — | [BL-34](#bl-34) |
+| BL-35 | Plans, journals, reports and settings replaced a read-only or linked file | Fixed | — | — | [BL-35](#bl-35) |
+| BL-36 | A conversion refused for a changed file still replaced its earlier backup | Fixed | — | — | [BL-36](#bl-36) |
+| BL-37 | A contradicting source choice that was also the target was not refused | Fixed | — | — | [BL-37](#bl-37) |
+| BL-38 | `-Validate utf-8` rejected ASCII files that conversion treats as already UTF-8 | Fixed | — | — | [BL-38](#bl-38) |
+| BL-39 | A source chosen in a cancelled GUI review carried into the next review | Fixed | — | — | [BL-39](#bl-39) |
+| BL-40 | The GUI's Validate status read the same when every file passed and when none was checked | Fixed | — | — | [BL-40](#bl-40) |
+| BL-41 | GUI rows kept an earlier run's icon and never showed why a file failed | Fixed | — | — | [BL-41](#bl-41) |
+| BL-42 | A preview's CSV report called files Converted | Fixed | — | — | [BL-42](#bl-42) |
+| EC-32 | A cancellation timeout could hide repeated refusals to press Cancel | Fixed | — | — | [EC-32](#ec-32) |
+| EC-15 | Plans and journals showed fixed safety flags as if they recorded checks | Fixed | — | — | [EC-15](#ec-15) |
+| BL-18 | BOM-less UTF-16 could be detected and converted as UTF-32 | Fixed | — | — | [BL-18](#bl-18) |
+| EC-17 | A comment describes the text check backwards | Fixed | — | — | [EC-17](#ec-17) |
+| EC-05 | An unreadable skipped or refused entry blocked the whole plan | Fixed | — | — | [EC-05](#ec-05) |
+| EC-06 | Plans rooted at a drive letter could not be applied | Fixed | — | — | [EC-06](#ec-06) |
+| EC-07 | A refusal advised the same ambiguous encoding it rejected | Fixed | — | — | [EC-07](#ec-07) |
+| EC-09 | Excluded EC artifacts were uncounted | Fixed | — | — | [EC-09](#ec-09) |
+| EC-10 | A scan failure was journaled as a policy refusal | Fixed | — | — | [EC-10](#ec-10) |
+| EC-11 | Plan application leaked a Ctrl+C handler | Fixed | — | — | [EC-11](#ec-11) |
+| EC-12 | The GUI counted skipped files as unchanged | Fixed | — | — | [EC-12](#ec-12) |
+| EC-13 | A mixed-source plan could report one source encoding for the run | Fixed | — | — | [EC-13](#ec-13) |
+| EC-14 | The journal recorded the source text hash as the output text hash | Fixed | — | — | [EC-14](#ec-14) |
+| EC-16 | An interrupted settings save could erase the previous settings | Fixed | — | — | [EC-16](#ec-16) |
+| EC-19 | Double-BOM handling depended on the encoding instance | Not reproduced | — | — | [EC-19](#ec-19) |
+| EC-21 | Save dialogs were not disposed | Fixed | — | — | [EC-21](#ec-21) |
+| EC-22 | EC read some JSON files differently from how it wrote them | Fixed | — | — | [EC-22](#ec-22) |
+| CX-01 | Empty option values were silently treated as absent | Fixed | — | — | [CX-01](#cx-01) |
+| CX-02 | A failed second conversion could destroy the first recovery record | Fixed | — | — | [CX-02](#cx-02) |
+| CX-03 | A saved plan could follow a folder path redirected after approval | Fixed | — | — | [CX-03](#cx-03) |
+| CX-05 | The journal could not describe an uncertain result after replacement | Fixed | — | — | [CX-05](#cx-05) |
+| CX-07 | Old plans, journals, and reports should be excluded from scans | Intentional behavior | — | — | [CX-07](#cx-07) |
+| CX-08 | Documentation and validation disagreed about `-DetectOnly` conflicts | Fixed | — | — | [CX-08](#cx-08) |
+| CX-09 | Cancelling after writes produced no journal | Fixed | — | — | [CX-09](#cx-09) |
+| CX-10 | Plan summaries said detection was bypassed when it ran | Fixed | — | — | [CX-10](#cx-10) |
+| CX-11 | GUI startup could fail before settings error handling began | Fixed | — | — | [CX-11](#cx-11) |
+| CX-12 | Saved window positions ignored the current monitor layout | Fixed | — | — | [CX-12](#cx-12) |
+| CX-13 | CI did not verify that EC, LEN and CorpusTesters shared the detector | Fixed | — | — | [CX-13](#cx-13) |
+| BL-02 | CSV cells need formula neutralization | Withdrawn | — | — | [BL-02](#bl-02) |
+| BL-03 | Conversion parallelism was capped at four | Fixed | — | — | [BL-03](#bl-03) |
+| BL-04 | The GUI could silently ignore a selected source encoding | Fixed | — | — | [BL-04](#bl-04) |
+| BL-06 | Encoding aliases could cause unnecessary rewrites | Fixed | — | — | [BL-06](#bl-06) |
+| BL-07 | A whole-file unchanged claim came from a 64 KiB sample | Fixed | — | — | [BL-07](#bl-07) |
+| BL-08 | Preview could approve a source that conversion could not decode | Fixed | — | — | [BL-08](#bl-08) |
+| BL-09 | One unexpected file exception could stop the whole run | Fixed | — | — | [BL-09](#bl-09) |
+| BL-10 | An unreadable folder was invisible to machine output | Fixed | — | — | [BL-10](#bl-10) |
+| BL-11 | Folders skipped by name were uncounted | Fixed | — | — | [BL-11](#bl-11) |
+| BL-12 | Some validation failures had no reason code | Fixed | — | — | [BL-12](#bl-12) |
+| BL-13 | Different code paths could give different reasons for one refusal | Fixed | — | — | [BL-13](#bl-13) |
+| BL-14 | Decode failures could report a negative chunk offset | Fixed | — | — | [BL-14](#bl-14) |
+| BL-15 | Console output ignored the console's encoding | Fixed | — | — | [BL-15](#bl-15) |
+| BL-16 | Help and CLI documentation stated an old parallelism default | Fixed | — | — | [BL-16](#bl-16) |
+| BL-17 | The lifetime of `<file>.bak` was undocumented | Fixed | — | — | [BL-17](#bl-17) |
+| BL-22 | An unwritable report or journal path was found only after files changed | Fixed | — | — | [BL-22](#bl-22) |
+| BL-23 | A damaged plan could report an unknown action as Converted | Fixed | — | — | [BL-23](#bl-23) |
+| BL-24 | An interrupted write could erase a plan, journal, report or settings file | Fixed | — | — | [BL-24](#bl-24) |
+| BL-25 | EC and LEN use different internal methods to verify converted text | Decision | — | — | [BL-25](#bl-25) |
+| BL-26 | The GUI smoke test could reject an encoding below the visible list | Fixed | — | — | [BL-26](#bl-26) |
+
+<!-- backlog-ledger:end -->
+
+## Finding details
+
+One entry per finding, ordered by ID. The status is not repeated here - the
+ledger above is the only place that assigns it, so these cannot disagree with it.
+
+### BL-01
+
+**Fixed.** BOM-less UTF-32 is no longer converted automatically in any mode; it
+is refused with reason code `UnprovableBomlessUtf32`, and `-DetectOnly` and
+`-Validate` report the same code. `ConversionSemantics` moved from 6 to 7,
+because a plan approved under the previous behaviour may list files this build
+refuses.
+
+Was: the ambiguity guard covered code pages 1200 and 1201, not 12000 and 12001.
+A fixture of UTF-32BE `00 00 01 00` units was detected as little-endian and
+converted from U+0100 to U+10000 with exit 0.
+
+Widening the opposite-order test would not have been enough on its own — see
+[BL-18](#bl-18), whose bytes are *invalid* under the opposite UTF-32 order. Both
+are closed by refusing BOM-less UTF-32 outright, at the cost of refusing
+ordinary BOM-less UTF-32 as well; nothing in the bytes separates the two.
+
+### BL-02
+
+**No reachable report field begins with a spreadsheet formula marker.**
+`DirectoryTraversal` resolves the `File` value with `Path.GetFullPath`, so it
+begins with a drive letter or UNC prefix. A current file named `=1+1.txt`
+produced `C:\...\=1+1.txt`. Encoding, BOM, target, result, reason code, and
+diagnostic are product-controlled values. Reopen this only if a reachable field
+starting with `=`, `+`, `-`, or `@` is demonstrated.
+
+### BL-03
+
+**The named default cap is eight.** `ScanEngine.MaxParallelismCap` and
+`DocumentedParallelismDefaultTests` keep code, help, and `docs/CLI.md` aligned.
+The change from four was measured on 2026-09-04 at 1.5–1.7x faster; that
+historical timing was not rerun during the 2026-09-08 source recheck.
+
+### BL-04
+
+**A source choice that cannot be scoped remains visible.** Each review row
+carries its resolved path. `DescribeUnusableScope` detects a ticked row whose
+path is unavailable, keeps the review open, names how many rows are affected,
+and asks the user to run View again. The unit test
+`ASourceChoiceThatCannotBeAppliedIsRefusedRatherThanDropped` and GUI smoke phase
+J verify the message and unchanged bytes.
+
+Before this correction, choosing an encoding after the review's directory had
+changed could close the dialog and report “Conversion cancelled. No files were
+modified,” although the user had not cancelled. EC-06 made every row hit that
+path when the review root was a drive root.
+
+### BL-05
+
+**Force-closing EC mid-conversion can produce an error as it exits.** If the user
+confirms a second close while the run is still stopping, a background task can
+try to use a window that has already gone.
+
+No file content is lost. Files already converted were installed one at a time and
+stay installed, and the file in flight stays protected. The expected symptom is
+an exception while EC closes.
+
+Evidence: `OnFormClosing` deliberately allows a confirmed second close, because
+cancellation is cooperative. A background task can then call the synchronous
+confirmation `Invoke`, and its completion touches controls on the form.
+
+Still open because it was confirmed by reading the current code rather than by
+triggering it; the timing it needs has not been reproduced.
+
+### BL-06
+
+**Already-target identity is canonical codec identity, not spelling.** The old
+comparison used `WebName` against the caller's label. `-Target unicode`,
+`ucs-2`, or `utf-16le` could therefore decode, re-encode, verify, and reinstall
+files already in UTF-16LE with identical bytes, changing timestamps and creating
+backups and sidecars. Under `-FailOnChanges`, spelling alone changed the exit
+code; on BOM-less UTF-16 it could change a no-op into a refusal. The decision now
+compares nonzero resolved code pages. ASCII-to-UTF-8 behavior was left separate
+until full-file validation made folding it safe; BL-34 has since folded it in.
+
+### BL-07
+
+**An unchanged decision validates the complete file.** Detection examines at
+most 64 KiB. Previously, a matching source and target label skipped every later
+byte, so a file valid for 64 KiB and invalid afterward was `Unchanged` under one
+target and `Error` under another. Conversion already captures a whole-file
+snapshot hash; the added validation measured at 0.04–0.10 ms per MiB.
+
+### BL-08
+
+**A preview reads the source it promises to convert.** The old `WhatIf` branch
+returned before decoding, so `-Plan` could approve an unreadable source and defer
+failure until `-Apply`, after approval and potentially partway through a batch.
+The source now receives strict full-file decode validation and an unreadable
+entry is planned as `Refuse`. This remains source-only preflight: target
+representability is tested by actual conversion, and a dedicated test pins that
+limit.
+
+### BL-09
+
+**Unexpected per-file exceptions are isolated.** The old `Parallel.ForEach`
+worker caught four named exception types; a `SecurityException`, regex timeout,
+or product defect escaped as `AggregateException` and ended work on files the
+run had not reached. The CLI outer catch had the same four-name limit. The
+worker now propagates only cancellation and `OutOfMemoryException`.
+`RunParallel` is internal so a test can inject the otherwise difficult
+exceptions and prove another file still runs.
+
+### BL-10
+
+**Unreadable directories are visible as coverage loss.** An unreadable file
+already produced a `ScanFailed` row and exit 3. An unreadable folder formerly
+produced only an optional stderr warning—and no GUI trace because the GUI passes
+no warning callback. In the original deny-ACE measurement, a tree with one
+unreadable folder reported “1 file(s) processed” and exit 0; a wholly unreadable
+root produced a header-only CSV and exit 0. `DirectoriesUnreadable` now counts
+both traversal failure points separately from intentional exclusions. The exit
+code deliberately remains unchanged, so strict automation must inspect coverage
+output.
+
+### BL-11
+
+**Folders skipped by reserved name have their own counter.** `.git`, `bin`,
+`obj`, `build`, and the other documented names were skipped without appearing in
+coverage. They are now counted separately from hidden, system, and reparse-point
+folders, preserving the truth of both messages. An include pattern still cannot
+override these exclusions, matching both user documents.
+
+### BL-12
+
+**Every validation rejection names its cause.** A charset outside the allowed
+list now uses `CharsetNotAllowed`; a file EC cannot identify uses
+`UnknownEncoding`. Previously both reached `Invalid` with no reason, forcing a
+consumer to re-derive information the producer already had.
+
+### BL-13
+
+**Before:** EC decided whether to refuse in one place and worked out the reason to
+report in another. The two were textually identical but nothing held them
+together, so they could drift - and a future refusal could fall through the
+caller's separate follow-up check and be reported as `LegacySourceRequired`.
+
+**Now:** `ConversionPolicy.ReasonCodeFor` produces both the decision and its
+reason.
+
+Evidence: `ApplyConversion` formerly repeated the condition already reduced to
+`SourceInterpretation`. Tests now cover all 256 reachable input combinations and
+require every refusal to carry a reason.
+
+### BL-14
+
+**Decode errors name offending bytes, not a misleading chunk offset.**
+`DecoderFallbackException.Index` is relative to one decoder call and can be
+negative when an invalid sequence began in carried bytes. A truncated UTF-8
+tail reported offset -2. The diagnostic now reports the byte sequence. An
+absolute file offset would require restructuring the streaming loop and is not
+claimed.
+
+### BL-15
+
+**Interactive output follows the console; redirected output remains UTF-8.**
+Reattaching to a parent console formerly rebuilt writers with UTF-8 even when
+`Console.OutputEncoding` was IBM437, turning “Grüße aus München” into
+“Gr├╝├ƒe aus M├╝nchen”. The console now receives its own encoding, where
+unrepresentable characters become visibly lossy `?`; redirected CSV remains
+UTF-8, and `-Report` is UTF-8 with BOM. EC does not mutate global console state.
+
+### BL-16
+
+**The parallelism default has one code identity and checked documentation.** The
+help and `docs/CLI.md` both used to say four after the implementation moved to
+eight. A test reads the statement in each document and verifies its digits equal
+`ScanEngine.MaxParallelismCap`.
+
+### BL-17
+
+**A backup is the version replaced by the most recent run.** Re-converting a
+file replaces `<file>.bak` and removes its old sidecar. This long-standing
+behavior was tested but undocumented. The documents now say it plainly.
+
+The review initially proposed refusing to overwrite a nonmatching backup. That
+proposal was rejected after it broke four existing tests and would have blocked
+an ordinary “wrong target, convert again” workflow until the user manually
+deleted recovery files. CX-02 instead ensures stale metadata cannot describe a
+new backup.
+
+### BL-18
+
+**Fixed** by the same rule as [BL-01](#bl-01): BOM-less UTF-32 is refused
+rather than converted, so a UTF-16 file that happens to decode as UTF-32 is left
+alone instead of rewritten as different text.
+
+Was: a BOM-less UTF-16 file with one character per LF-terminated line puts a C0
+control in every second code unit, so each four-byte group is an in-range
+unassigned scalar and the file decodes as valid UTF-32. Converting it wrote
+different text, and output verification could not notice, because both sides of
+its comparison used the same wrong codec.
+
+This is the case an opposite-order test cannot catch: those bytes are *invalid*
+as UTF-32BE, so the check that protects BOM-less UTF-16 returns false. What the
+bytes fail to establish is the codec, not merely its byte order — which is why
+the fix refuses on the absence of a BOM rather than on ambiguity.
+
+No scalar classification changed. Private-use characters are what icon fonts put
+in ordinary text files, so rejecting unassigned or private-use scalars would have
+broken real sources; a test converts U+E000, U+F8FF, U+E0B0, U+F00C and U+F0000
+and checks all five survive.
+
+### BL-19
+
+**An ASCII file carrying many NUL bytes can be reported as UTF-16.** A current
+65,536-byte ASCII fixture with a NUL every 100 bytes — 1.001% of all bytes — was
+reported as UTF-16BE.
+
+Conversion then refused it with exit 5 and the source hash did not change. So the
+wrong answer reaches what EC *reports*, not what it writes. This is the one open
+finding where EC answers its own central question incorrectly.
+
+Evidence: the UTF-16 structure heuristic triggers at 2% of bytes within one
+candidate UTF-16 channel, which for this shape is roughly 1% of all bytes. An
+earlier version of this document said 2.3% of all bytes; that figure was wrong.
+
+### BL-20
+
+**Two names for one file are converted twice, and stop being the same file.**
+Windows can expose a single file under two hard-link names. EC treats them as two
+separate files and converts each.
+
+Text is preserved either way: in a current probe both names of one UTF-8 file
+were converted, both kept their text exactly, and each received its own verified
+`.bak` and `.ecmeta.json`. What is lost is the link itself — the normal Windows
+`File.Replace` path breaks it, so afterwards the two names refer to different
+files. The work is also done twice.
+
+No claim is made about the `File.Move(..., overwrite: true)` fallback, which
+could not be forced on this platform.
+
+Still open partly as a question rather than a defect: whether EC should preserve
+hard-link identity or treat selected paths independently is a design choice
+nobody has made.
+
+### BL-21
+
+**Detection can accept a cut-off final character that conversion then rejects.**
+A UTF-8 file ending in the incomplete bytes `E2 82` was reported as UTF-8 by
+`-DetectOnly`. Conversion refused the same file, returned `SourceDecodeError`
+and exit 3, and left it unchanged.
+
+The safety path is correct — the file is refused, not converted. The
+inconsistency is that detection had already reported it as fine.
+
+Evidence: detection reads a sample and does not treat an incomplete tail as an
+error. Conversion reaches the real end of the file and flushes the strict
+decoder, which does. The difference is deliberate on both sides.
+
+### BL-22
+
+**Requested report and journal destinations are checked before mode dispatch.**
+Previously, a missing output directory or an existing directory used as the
+output path was discovered after source files had been rewritten, leaving the
+requested record absent. All four combinations were reproduced. Preflight now
+returns processing exit code 3 before conversion. It does not create a probe
+file, which would itself leave artifacts and still could not promise a later
+write.
+
+### BL-23
+
+**Before:** a damaged or hand-edited plan could carry an action value no build
+ever wrote, and EC reported it as a conversion. An action of 99 exited 0, said
+"1 converted", and wrote a journal recording action 99 - while the source hash
+was unchanged. The journal asserted work that never happened.
+
+**Now:** EC rejects an unknown action or source interpretation before touching any
+source file.
+
+Evidence: `System.Text.Json` accepts any number for an enum, and the result
+mapper's fallback arm was `Converted`. Plan loading now validates both `Action`
+and `SourceInterpretation`, and the mapper names every known action and throws
+for anything else.
+
+### BL-24
+
+**Before:** plans, journals, reports and settings were written by erasing the
+existing file first. If the write then failed, the previous record was gone - and
+for a plan, that meant destroying the reviewed plan immediately before it was to
+be applied.
+
+**Now:** EC writes a complete temporary file beside the destination and replaces
+the old one only after that write succeeds. Converted files and recovery sidecars
+already worked this way; the four saved-file types listed above now use the same
+mechanism, `AtomicArtifactFile`.
+
+The recovery sidecar keeps its own writer, which also reads back and verifies what
+it wrote - more than the shared one does, and not worth reducing. The same change
+closed EC-16.
+
+**Later correction:** the two GUI exports, the text list and the CSV report, were
+missed and still opened the chosen file directly, so a failed write could erase a
+previous report. They now write through `AtomicArtifactFile` as well. This is folded
+into BL-24 because it completes the same fix rather than adding a mechanism.
+
+`GuiExportWriteTests` pin the new behaviour: a failed write leaves the previous
+report byte-for-byte and no staging file. They never ran against the original code,
+because the method they call did not exist; with the direct write re-created behind
+that method, the mid-write failure tests fail. A read-only report or a link is
+refused rather than replaced, which a direct write would not have done either. The
+save dialog around the write is not exercised by tests.
+
+### BL-25
+
+**EC and LineEndingNormalizer both verify that conversion preserved the content,
+using different internal methods.** No defect was found; this records a deliberate
+difference so a future maintainer does not mistake it for one.
+
+Both use SHA-256 for source bytes and backup evidence. EC also uses SHA-256 for
+content digests and saves them as `SourceTextSha256` and `OutputTextSha256`; LEN
+uses XxHash3 for a private normalized-content digest that it discards. EC compares
+hexadecimal digest strings with `string.Equals(..., OrdinalIgnoreCase)`; LEN
+compares digest bytes with `CryptographicOperations.FixedTimeEquals`.
+
+| Evidence | EC | LEN |
+|---|---|---|
+| Raw source and backup | SHA-256 | SHA-256 |
+| Content digest | SHA-256, persisted | XxHash3, discarded |
+| Backup comparison | Case-insensitive hexadecimal strings | Fixed-time byte comparison |
+
+Neither comparison is wrong for accidental corruption. This is recorded so a
+future maintainer can decide whether safety machinery should converge; detector
+parity does not cover it.
+
+### BL-26
+
+**The smoke driver now treats an exact combo item consistently even when UI
+Automation calls it offscreen.** Phase J selected `windows-1252`, which was below
+the visible part of the source dropdown. The combo-scoped search rejected it,
+then a keyboard fallback foregrounded the disabled main form instead of the
+modal review. Phase C had not exposed this because its `iso-8859-1` choice was
+inside the visible part of the same dropdown. Both combo-scoped and process-wide
+exact-name searches now follow the same documented rule, and fallback input
+uses the supplied window. Phase J drives the source-choice refusal against the
+built application.
+
+This fix kept the search-for-an-item design and made it consistent.
+[EC-24](#ec-24) later found that searching for items at all was unreliable, and
+replaced the approach rather than adjusting it again.
+
+### BL-27
+
+**Fixed by promising only what the build being driven can show.** The report
+hashes a loose managed assembly when one sits beside the executable, and says
+there is none when it does not, rather than printing a path with an empty hash
+after it. `RELEASE-CHECKLIST.md` and `GUI-SMOKE-TEST.md` describe both cases.
+The executable *is* the artifact, so its hash is the provenance that matters;
+v3.13.0 demonstrated the stronger form by reproducing that hash byte-for-byte
+from the tagged commit.
+
+Was: `gui-smoke-report.json` carried no `EcManagedAssemblySha256` key and the
+Markdown rendered an empty pair of backticks, while both printed the
+`EncodingChecker.dll` path as though a value followed — because a single-file
+publish leaves no loose DLL where the suite looked. That held since single-file
+publishing began, so the v3.12.0 and v3.12.1 evidence carries the same empty
+field.
+
+The alternative, hashing the publish intermediate `win-x64/EncodingChecker.dll`,
+was rejected: it exists only during the build and no user ever receives it, so
+recording it would document a byproduct rather than the release. Nothing about
+conversion was involved either way; this is evidence hygiene.
+
+### CX-01
+
+**A present option must carry a usable value.** Empty values for all value-taking
+flags are rejected with exit 1; `BlankOptionValueSafetyTests` verifies that
+nothing changes.
+
+### CX-02
+
+**A stale sidecar cannot survive backup replacement.**
+`RemoveBeforeBackupReplacement` removes the old record before replacing the
+backup, including a read-only record.
+
+### CX-03
+
+**Applied plans re-check every path component.**
+`HasReparsePointInPath` rejects a root or descendant replaced by a junction;
+applied-plan integrity tests cover the final component and outside-root cases.
+
+### CX-05
+
+**The journal can say what is and is not known after installation.**
+`ConvertedWithWarning` distinguishes a completed install with a later warning;
+`InstallationUnknown` represents a failure after the replacement outcome can no
+longer be proved.
+
+### CX-06
+
+**EC decides a file looks like random data before it looks for a byte-order
+mark.** In principle a file could be reported as unknown, or as the wrong
+encoding, even though its first bytes say what it is.
+
+This changes what EC *reports*. It is not evidence that conversion writes a file
+it should have refused.
+
+Evidence: the entropy guard returns before `UnicodeDetector.DetectFromBuffer`
+examines the mark.
+
+**Re-scored Occasional to Theoretical on 2026-09-08, after measurement.** No
+text reaches the gate. Across all four corpora, 3,620 files are large enough to
+be gated (512 bytes) and 47 trip the 7.4-bit threshold — every one of them
+binary: 35 fixtures under `13_Binary/`, plus images and a spreadsheet in
+directories the corpora label `None`. The highest-entropy *text* file among 3,568
+candidates is dense Chinese XML in gb2312 at **6.8133**, a margin of 0.59 below
+the threshold, with UTF-16 Chinese just behind it. Base64 caps at 6.0 by
+construction. Reaching 7.4 needs a near-uniform byte distribution, which prose
+in any encoding does not produce.
+
+**A fix was written and then dropped**, which is the part worth recording. Making
+the guard yield to a byte-order mark works, and costs something measurable:
+`CheckBom` returns a codec from the marker bytes alone, so BOM-prefixed binary
+began detecting as `utf-16` instead of `(Unknown)`, and a scan containing one
+moved from exit 0 to exit 3. Strict validation still caught it and no bytes
+changed, so nothing was corrupted — but that is a measured behaviour change
+bought against a benefit no corpus file demonstrates.
+
+It stays open at Theoretical. Re-score it only on evidence of real text at or
+above the threshold - not on the mechanism, which is not in doubt.
+
+### CX-07
+
+**Old JSON and CSV artifacts are intentionally ordinary input.** The earlier
+ledger claimed they were excluded and even described a correction that was
+never made. `docs/CLI.md` deliberately says old plans, journals, and reports are
+scanned because a user may wish to convert them. A current `old-plan.json` probe
+was detected as ASCII. Only backups, sidecars, temporary files, and the current
+command's output paths are excluded.
+
+This false correction was discovered by re-deriving the row from source rather
+than trusting its own note.
+
+### CX-08
+
+**CLI mode conflicts are executable documentation.**
+`DocumentedOptionContractTests` pins the rejected combinations around
+`-DetectOnly`, validation, conversion, plan, and apply.
+
+### CX-09
+
+**An interrupted GUI write run still produces a journal.** Unit coverage and
+GUI smoke phase I reconcile completed and unattempted entries.
+
+### CX-10
+
+**An explicit choice does not erase detection history.** Plan summaries now say
+“chosen by you; detection still ran and is recorded,” with provenance tests.
+
+### CX-11
+
+**Settings-path creation is inside startup error handling.** A failure no longer
+escapes before the guarded settings load begins.
+
+### CX-12
+
+**Window restoration checks the monitors that exist now.**
+`WindowPosition.IsReachable` requires a useful title-bar intersection, with
+tests for removed, left-side, and secondary displays.
+
+### CX-13
+
+**Detector parity is enforced before integration and release.** The parity
+workflow runs on pull requests, and the release workflow declares it as a job
+dependency.
+
+### EC-01
+
+**A reviewed refusal is binding.** `PlannedFile.HasReliableUnicodeDetection`
+carries the policy input that was formerly lost at the plan boundary.
+`AppliedPlanFidelityTests.ThePlanCarriesTheDetectionReliabilityTheVetoDependsOn`
+pins it.
+
+### EC-02
+
+**Read-only modes use the conversion safety decision.**
+`ReadOnlyModeAmbiguityTests` proves that an unprovable BOM-less Unicode source is
+not reported valid when conversion would refuse it.
+
+### EC-03
+
+**The v3.10.1 advisory reaches the real window.** GUI smoke phase H asserts on
+the rendered source-choice text rather than only on an internal decision.
+
+### EC-04
+
+**Plan failures control the exit code.** The plan branch returns processing
+failure before considering `-FailOnChanges`; `PlanPreflightReportingTests`
+covers the ordering.
+
+### EC-05
+
+**Only scheduled conversions require a source hash.** Plan loading no longer
+makes an unreadable skipped or refused entry render the whole plan unusable.
+
+### EC-06
+
+**Drive roots resolve without manufacturing `C:\\`.**
+`ConversionPlan.ResolvePath` now uses a root-aware containment check, with
+theories for `C:\`, nested paths, and outside paths.
+
+This defect was found before v3.11.0, recorded as confirmed, reported as closed,
+and shipped broken in both **v3.11.0 and v3.11.1**. It was rediscovered during an
+unrelated review. This history is why status is now derived from a checkable
+ledger rather than a summary.
+
+### EC-07
+
+**The refusal gives two actionable choices.**
+`BomlessUnicodeSafety.DescribeRefusal` offers both UTF-16 byte orders instead of
+recommending the unproved estimate.
+
+### EC-08
+
+**Fixed by evaluating wildcard masks with .NET's non-backtracking engine.** The
+translation is unchanged — `*` becomes `.*`, `?` becomes `.`, and a
+separator-free mask still matches at any depth — so include and exclude results
+are the same. What changes is that matching runs in time proportional to the
+input rather than retrying an exponential number of alternatives.
+`NonBacktracking` replaces `Compiled`; the two are mutually exclusive.
+
+Was: `CompilePatterns` built a `Compiled` regex, which uses
+`Regex.InfiniteMatchTimeout`. A mask carrying twelve separated wildcards, matched
+against a nonmatching forty-character run of `a`, did not finish within three
+seconds and had to be terminated, while realistic names answered in 0–5 ms. The
+trigger needs both inputs to be deliberately hostile, and the mask comes from the
+operator rather than an untrusted file — which is why reach stayed Theoretical.
+An unbounded runtime is still worth removing for the price of one option.
+
+**It is not free, and the earlier note here that it cost nothing was wrong.**
+Measured over 3,937 files, median of five warm runs: 128 ms with `Compiled`
+against 148 ms with `NonBacktracking` — about 16%, or roughly 5 µs per file, and
+the same figure for a plain `*.txt` mask as for `*a*b*.txt`. That is the price of
+a bounded worst case, recorded so the next reader weighs it instead of
+rediscovering it.
+
+An independent differential comparison of the two engines over 500 generated
+masks against 200 generated paths — 100,000 pairs, including separators and the
+regex-special characters EC escapes — found no case where they disagreed.
+
+`PathAwarePatternTests.WildcardPatternsUseTheNonBacktrackingEngine` asserts the
+option before exercising the hostile input, so restoring the old engine fails in
+9 ms instead of hanging the run. That mutation was performed, and the file
+restored byte-identical by SHA-256.
+
+Three dead ends stay recorded: a matching filename stops at the first success and
+proves nothing; `*` crossing directory separators is deliberate and tested; and
+replacing `.*` with `[^/]*` does not prevent backtracking within a separator-free
+filename. `PathAwarePatternTests.PathQualifiedPattern_MatchesOnlyTheIntendedSubtree`
+pins the intended `src/*.cs` directory behavior.
+
+### EC-09
+
+**Selected EC artifacts are counted.** `.bak`, `.ecmeta.json`, and temporary
+conversion files update `TraversalCounters.FilesExcludedAsEcArtifact`, pinned by
+`ArtifactExclusionCoverageTests`.
+
+### EC-10
+
+**A failed snapshot is an error, not a policy decision.** Journal outcome tests
+pin `ScanFailed` to `Error` rather than `Refused`.
+
+### EC-11
+
+**Both console cancellation subscriptions have bounded lifetimes.** Each Ctrl+C
+handler is removed in `finally`, so it cannot retain a disposed token source.
+
+### EC-12
+
+**Skipped and unchanged are separate GUI counts.** The tally is pinned by
+`SkippedFilesAreNotCountedAsUnchanged`.
+
+### EC-13
+
+**Mixed batches describe source choice per file.** `DescribeSourceChoice` no
+longer presents one run-wide explicit encoding when several were used.
+
+### EC-14
+
+**Source and output text hashes come from separate reads.** The conversion
+record accepts the output digest produced by verification and rejects a missing
+one; `RecordedProvenanceTests` compares the installed output independently.
+
+### EC-15
+
+**Before:** plans and journals carried five safety flags that were always `true`.
+EC never read them when applying a plan, so they proved nothing about whether any
+individual check had run - but a reader could easily take a serialized `true` as
+proof that one had.
+
+**Now:** the files carry one safety-rules version and a sentence describing it.
+EC checks the version; the sentence exists only to tell a reader what the version
+means.
+
+This was a clarity fix, not a conversion-safety fix. EC always executed its strict
+behaviour; only the artifact implied the flags were the reason.
+
+Evidence: `StrictDecoding`, `StrictEncoding`, `OutputVerification`,
+`AtomicInstall` and `LegacyRequiresExplicitSource` were replaced by
+`SemanticsDescription`, the sentence `ConversionSemantics.Describes` already
+held. `SemanticsVersion` remains the only enforced compatibility value, and a
+test confirms the description is never consulted: altering it inside a plan file
+changes nothing about whether that plan loads.
+
+The artifacts changed shape, so their versions say so: plan schema 5 to 6,
+journal schema 4 to 5. That rejects plans written by v3.13.0 as well as older
+ones - semantics 7 shipped in that release, so this is not the free change it
+would have been a day earlier.
+
+### EC-16
+
+**Settings use the same atomic artifact writer as other records.** An
+interruption before replacement leaves the previous preferences intact. This
+was closed incidentally by the v3.12.1 artifact-writer refactor, not by a
+settings-specific change.
+
+### EC-17
+
+**A comment describes the text check backwards.** Control and private-use
+characters *lower* the printable-text ratio. The comment beside the calculation
+says they are ignored.
+
+Nothing a user sees is wrong: the binary-rejection behaviour is the intended one.
+What is wrong is what the next person reads, which is why reach is Common.
+
+Evidence: `TextValidation.cs` increments the total rune count before its category
+switch, so those scalars count toward the denominator while never incrementing
+`printable`.
+
+Fixed in v3.14.4. The comment now reads "Control and private-use characters
+count toward the total but not toward printable, lowering the ratio." The fix
+landed in all three repositories in the same change (EncodingChecker PR #116,
+LineEndingNormalizer PR #16, CorpusTesters PR #6), keeping the parity-checked
+comment byte-identical across all three. The calculation itself is unchanged.
+
+### EC-18
+
+**Before:** EC remembered only when it *had* found a BOM-less UTF-16 ambiguity.
+When it found none, that answer was forgotten, and the full check could run again
+on the next pass.
+
+**Now:** both answers are remembered, so each file is examined once. The stored
+value is nullable: null means not yet classified, and `None` means classified
+with no doubt found.
+
+Nothing a user sees changes, which is why this carries no test of its own. It was
+not a speed problem either: measurement found no meaningful cost, because a
+provable file fails the opposite-order decode inside its first buffer. The defect
+was redundant work and a state that could not tell "no" from "not asked".
+
+### EC-19
+
+**The proposed encoding-instance gap did not reach conversion.** Conversion
+re-resolves the codec name through `Encoding.GetEncoding`, whose UTF-8 instance
+has the expected preamble. A current file beginning with two UTF-8 BOMs was
+refused with `MultipleLeadingByteOrderMarks` and exit 5 through both automatic
+detection and `-From utf-8`.
+
+### EC-20
+
+**A file can change while EC is working out what encoding it is.** Detection
+opens the file in a mode that lets another program write to it or delete it at
+the same time, so the encoding EC reports can describe bytes that have already
+changed.
+
+No source file is altered by this. Before conversion writes anything it takes its
+own copy of the bytes, bound to a hash. What can go stale is what detection and
+validation *report*.
+
+Evidence: `TextEncoding.DetectFromFile` opens with
+`FileShare.ReadWrite | FileShare.Delete`, while the validation and
+source-snapshot paths use `FileShare.Read`.
+
+Still open because the obvious correction is not obviously right. Tightening
+detection to match would make EC fail on any file another program holds open,
+which includes ordinary log files.
+
+### EC-21
+
+**All three save dialogs have deterministic disposal.** Each construction site
+uses `using var`.
+
+### EC-22
+
+**Each JSON store shares its reader and writer options.** Plan and recovery
+metadata no longer serialize and deserialize through mismatched option objects.
+
+### EC-23
+
+**Before:** applying a plan assumed an earlier check had already produced a valid
+file path. The assumption held, but nothing said so - and had later code bypassed
+that check, the failure would have surfaced as an unexplained null reference.
+
+**Now:** EC stops with an explicit error naming the check that must have run.
+
+Under the present flow nothing changes, which is why nothing new is asserted and
+no test accompanies it. EC-06 is what happened the last time an invariant of this
+shape was left implicit.
+
+Evidence: `FindStaleFiles` rejects a plan whose paths resolve outside its
+directory; reaching the dereference means that check did not run.
+
+### EC-24
+**Before:** the smoke driver picked an encoding by searching for a list item -
+first under the intended drop-down, then across the whole EC process for any
+visible item with a matching name. Both encoding drop-downs contain names such as
+`utf-16BE`, so that second search could select the item in the wrong control and
+leave the one under test unchanged. `lstConvert` is on the main window,
+`lstSourceEncoding` in the review.
+
+**Now:** the driver sets the value on the intended drop-down. It opens no list,
+searches no other window, changes no foreground focus and sends no keystrokes, so
+neither the popup-location dependency nor the name collision is reachable. The
+combo supports `ValuePattern` and reports `IsReadOnly` false.
+
+**Found by the release gate failing on bytes that then passed.** The v3.14.0
+release job failed at phase E with `'utf-16BE' was not selected in
+'lstSourceEncoding'`; a re-run of the same commit passed all ten phases. Nothing
+in that release touched the driver, the review form or the encoding list.
+
+**The mechanism is proven; the cause of that one run is not.** An independent
+review built a harness with two controls offering the same item name and
+reproduced the old fallback selecting the wrong one - the same observable result.
+That establishes the defect. It does not establish that the release runner was in
+that state, and the incident itself was never reproduced: on this machine the
+popup sits inside the combo's subtree and only one process-wide match is visible,
+so the ambiguity never arises here. This entry closes the mechanism, not the
+incident.
+
+**Evidence.** On the current .NET 10 WinForms provider, setting the value selects
+the matching item rather than only changing displayed text: phase E completes end
+to end, so the choice reaches conversion and the output text is preserved. An
+unknown value is a no-op on this provider, which the existing postcondition
+catches - no membership check is added, since one would reinstate the popup
+dependency this removes. Two mutations, never setting the value and setting a
+different one, each built cleanly and failed phase E with the message the release
+job produced, and the file restored byte-identical by SHA-256.
+
+**A timeout now names the error it retried.** `WaitFor` discarded
+`ElementNotAvailableException`, `InvalidOperationException` and `COMException`
+and reported only a generic timeout, so a probe that threw every time looked
+exactly like one that never became true. It keeps the last such error and
+`WaitUntil` reports it.
+
+**Relation to [BL-26](#bl-26).** That fix kept the search-for-an-item design and
+made it consistent. The v3.12.1 record said the asymmetry it kept "is the kind of
+thing a future phase could still trip over," and phase E is that phase. The
+keyboard fallback went with the searches: it foregrounded a window and typed into
+whatever held focus, and could not have repaired either cause.
+
+Two loose ends were found while making this change and neither is fixed by it.
+They carry their own IDs rather than sitting inside a closed entry where the
+ledger cannot give them a status: [EC-25](#ec-25) and [EC-26](#ec-26).
+
+### EC-25
+
+**Before:** the smoke suite assumed that the main window's target encoding was
+`utf-8`, but it never proved that assumption. During setup it tried to select
+`utf-8` before the target list was enabled. Because `utf-8` was already selected,
+the helper returned without changing anything. The suite therefore never tested
+whether it could actually change that list. If EC's default changed, every phase
+would fail during setup instead of one focused check explaining what was wrong.
+
+**Now:** every phase first checks that the window opens with `utf-8` selected and
+reports that assumption clearly if it is not true. After phase A cancels the
+review, it changes the target to `us-ascii` and then back to `utf-8`. Phase A is a
+safe place for this check because it already verifies that cancelling the review
+does not change any files. The round trip proves both that the expected default is
+present and that the target control can really be changed.
+
+`us-ascii` was chosen because its name is unambiguous in the list. BOM variants
+such as `utf-8-bom` and `utf-16BE` share prefixes with other entries, so an
+imprecise selection helper could appear to work while selecting the wrong item.
+
+**EC is unchanged.** The gap was in the smoke suite. `MainForm` selects `utf-8`
+only when that exact entry is available; otherwise it selects the first entry.
+The suite therefore needs to check the startup value rather than silently depend
+on it.
+
+**Evidence:** both halves were checked by mutation, each requiring the build to
+succeed and the compiled binary's hash to change before anything was run - a
+mutation that fails to compile otherwise leaves the previous binary answering the
+question. Deliberately expecting a different default produced a clear failure in
+750 ms. Temporarily making the target-selection method do nothing was caught when
+phase A could not change to `us-ascii` and back. After the source was restored
+byte-for-byte, fifteen consecutive complete smoke-suite runs passed - fewer than
+some earlier findings carry, because altering the suite retires the evidence
+gathered for the previous one.
+
+### EC-26
+
+**Before:** the driver asked whether a button was enabled and treated the answer
+as "the work has finished". `Current.IsEnabled` had been seen reporting a control
+disabled for five seconds while that same control accepted `Invoke` and closed the
+review, so four readiness checks rested on a flag that was known to lie: that a
+scan had finished, that writing had begun, whether cancellation was still
+possible, and that the main window had returned to idle. A phase could time out
+waiting for a control that was ready the whole time, and report a defect in EC
+that was not there.
+
+**Now:** each of those waits names evidence the operation itself produced - rows
+in the list, bytes on disk, the summary the window writes when it stops - through
+one helper, `WaitForOperationOutcome`. The rule it enforces is that `IsEnabled`
+answers "is this button enabled", which is a different question from "has the work
+finished". The helper that read the flag is gone from the driver, so the compiler,
+not a convention, is what keeps it out of the next readiness check.
+
+**EC is unchanged.** Enabling a button before the work behind it is complete is a
+reasonable thing for a window to do, and nothing a user sees depends on the order.
+The defect was in the instrument's idea of "finished". The one production file
+this touches, `MainForm`, was read and not edited.
+
+**What the controls showed.** One found a defect by failing. Another could not
+be run at all.
+
+The first control - forcing the flag to stay false and proving the suite still
+completes - could not be run as asked, because there is no longer anything to
+force: removing the helper left no caller for a stale flag to reach. That is a
+stronger guarantee than the control would have given, and it is also why the
+control is absent rather than passed.
+
+The second let the conversion finish before the phase reached its cancel step, to
+exercise the path a fast machine would take. Instrumented, the ordinary run
+rewrites 48 of 400 files and leaves 352 untouched; under the control it rewrites
+all 400 and leaves none, so the mutation demonstrably changed what happened. Phase
+I passed three times either way.
+
+The third clicked Cancel on a run that had already stopped, and **failed three
+times out of three** - which is the finding. The first attempt at this fix caught
+`ElementNotEnabledException`, on the assumption that a finished run leaves a
+disabled button. It does not: `MainForm` sets `btnCancel.Visible = false` when a
+run ends, so the button leaves the automation tree altogether and the ordinary
+lookup waited the full thirty seconds and threw `TimeoutException: Control
+'btnCancel' was not found`. A run that finished between the check and the click
+would have failed the phase - the same flake the guard was written to prevent.
+
+**The next two replacements were wrong too, and review caught both.** The first
+treated a button it could not find as proof that the run had finished, and stopped
+looking after two seconds. A missing button has two meanings - the run beat the
+phase to it, or automation failed to see a button that is on screen - and only the
+window's own final status separates them.
+
+The second raced a real button against that final status, but still accepted an
+ordinary completed run as a successful cancellation test. Blinded only to
+`btnCancel`, it would wait until all four hundred files finished and pass because
+the phase checked its cancellation-specific results only when files happened to
+remain untouched. It had proved completion, not cancellation.
+
+**Now:** phase I passes only after at least one file is converted, at least one is
+left untouched, and the final status says `Conversion stopped` with the matching
+converted and not-attempted counts. It asks for cancellation after the first
+observed write. If completion wins the race, the phase fails plainly instead of
+calling that a cancellation test. A button that disappears between lookup and
+click is likewise accepted only as evidence that the run completed, which still
+fails this phase because cancellation was not exercised.
+
+The decisive negative control hides only `btnCancel` while leaving the final
+status readable. The previous shape passed twice and converted all four hundred
+files. The final shape fails with *"The conversion finished before cancellation
+could be exercised."* Hiding both the button and final status also fails, retaining
+the distinction between a completed run and automation that can observe neither
+outcome.
+
+**A regression was introduced and fixed inside this change, and is recorded
+because the numbers below would otherwise look better than the work was.** The
+first version of the fix replaced the flag with a whole-window text scan, polled
+every 50 ms. In phase I that walks four hundred result rows while they are still
+being added; elements vanished mid-enumeration and the read threw. Fifteen full
+runs gave one pass and fourteen phase I failures. Reading only the status bar's
+own subtree, and treating a lost race as "no evidence yet" rather than as a
+failure, is what fixed it.
+
+**Runs afterwards.** Earlier revisions completed fifteen consecutive full runs on
+the status-bar read, seventeen on the shape before cancellation was made strict,
+and ten on the raced-cancel shape. Those all ran against four hundred files; the
+phase now uses a thousand, where eight focused runs convert 72-93 before
+cancellation lands and three complete suite runs pass at about twenty seconds
+each.
+
+Raising the count buys less than it appears to. The trigger polls by counting
+converted files, so a larger directory costs more per probe and the click lands
+proportionally later - about a twelfth of the workload converted either way. What
+does improve is the absolute room left over: nine hundred unconverted files rather
+than three hundred and seventy, which is what a machine converting far faster
+would have to burn through while UI automation's round trip stays much the same.
+If one ever does, the phase fails and says so, and the answer is to raise the
+count again rather than to accept a completed run. As with [EC-27](#ec-27), clean
+runs corroborate rather
+than prove; what closes this is that the enabled-state dependency and the
+completion-as-cancellation false pass are both unreachable in the final code.
+
+### EC-27
+
+**Before:** the smoke driver treated an enabled button as proof that the run had
+finished. The main window restores its buttons before it writes the final status
+message. During that short interval, the driver could read the previous message,
+an empty value, or unrelated text from the window instead of the result of the
+run that had just ended.
+
+**Now:** the driver waits for the result that the phase is about to verify. In
+phase I it waits until the status contains both `N converted` and `M not
+attempted`, using the numbers observed on disk, and only then reads the complete
+line. It does not use a fixed delay. A delay would merely make the race less
+likely; waiting for the required text removes the race from this check.
+
+**EC is unchanged.** Restoring the buttons before writing the status is a
+reasonable user-interface sequence. The defect was in the test driver's
+assumption that the first event proved the second had already happened.
+
+**How it was found:** on 2026-09-09, one complete run failed phase I with *"The
+324 unreached file(s) are missing from the status"*. The text captured by the
+driver contained control names but no final conversion message because that
+message had not yet been written. The same phase then passed three times by itself
+and twice as part of the complete suite. This intermittent pattern was dangerous:
+the suite could report a product defect that was not present, then pass when the
+same test was repeated. It occurred roughly once in fifteen runs before the fix.
+
+Code review confirmed the ordering in `MainForm.UpdateControlsOnActionDone`: the
+window restores the View button and writes the final status later in the same
+update. Because the driver checked every 50 ms, it could observe the window
+between those two actions.
+
+Twenty-five consecutive complete runs passed after the status-based wait was
+added. Those runs support the fix but do not prove it by themselves: at the
+roughly one-in-fifteen failure rate observed, twenty-five clean runs happen by
+chance about one time in five. The finding
+is closed because its cause was identified and the driver now waits for the exact
+text it needs instead of inferring completion from a button.
+
+EC-27 fixed one visible result of [EC-26](#ec-26): reading the final status too
+early. EC-26 was later fixed by removing the remaining enabled-button checks from
+readiness decisions. The driver now waits for evidence produced by the operation
+itself.
+
+### EC-28
+
+**Before:** when the driver lost access to EC's controls, it blamed EC for not
+finishing work that had in fact completed. The first correction was incomplete:
+it treated any failed fresh lookup as proof that the desktop was unavailable.
+That could hide a genuinely hung EC, whose UI Automation provider may itself fail
+to answer.
+
+**Status:** the false-blame behavior is fixed. The original one-in-thirteen
+occurrence remains unexplained, so this is contained rather than fully
+root-caused.
+
+**Now:** one observation separates five answers. Finding the main window means it
+is reachable. Finding another window from the process means the desktop is
+reachable but the expected window is absent. A lookup that throws stays a test
+failure and keeps the original timeout and automation error. Unknown process or
+window information is recorded as unknown, not as absence. `INCONCLUSIVE` with
+exit `2` requires a live process, a native window owned by that process, no process
+window visible through UI Automation, and Windows itself confirming the window is
+on another virtual desktop. A hung provider alone must not satisfy that rule.
+
+The diagnostic gathers its facts once rather than repeating the classification
+while composing the message. These queries are not an atomic snapshot: Windows
+can change between them. It includes exception messages, not only types. Status-reading
+errors flow through the normal retry path and are retained even if a later poll
+returns no text. The per-driver “window was once found” flag is gone, so losing
+the desktop before a later phase is handled by the same evidence.
+
+The earlier desktop-moving experiment reproduced the unavailable state.
+That experiment proves the mechanism is possible, but not that it caused the
+original one-in-thirteen occurrence. The correction does not need that claim: it
+uses observable window and process facts rather than guessing the trigger.
+
+**Setup this settles:** the suite must run on the active, unlocked desktop of an
+interactive Windows session. A visible, reachable EC that times out is still a
+failure; an unobservable desktop is not a verdict about EC.
+
+**Earlier controls:** an impossible completion message with a reachable EC produced
+`FAIL` and exit `1`. Forcing the final observation to lose the UIA window while
+the native window remained alive produced `INCONCLUSIVE` and exit `2` under the
+earlier, less strict rule. The current rule additionally requires the shell's
+desktop answer; automated classifier tests pin that distinction. Forcing
+the fresh lookup itself to throw a `COMException` stayed `FAIL` and retained that
+exception. Pointing the suite at Notepad kept the original “main window did not
+appear” failure instead of blaming the desktop.
+
+### EC-29
+
+**Before:** some assertions read a held UI Automation object directly. When EC
+was on another desktop, looking for a control could return `null` without
+throwing. Phase B negated that answer and could therefore pass because the driver
+was blind, not because the control was truly absent.
+
+**Now:** every direct assertion first finds the current main window and, when
+needed, the current review, then performs the read on that fresh object. A missing
+control is accepted only after the review itself was positively found. The expected
+review's process, native handle and automation runtime identity are captured when
+it opens. A failed identity read cannot become “any review will do.” A confirmed
+desktop move is inconclusive; missing or failed observations otherwise keep the
+failure and its cause.
+
+The load-bearing control disabled fresh review discovery. Preflight then failed
+with a report saying the review could not be read; it did not accept the missing
+control as proof that a safe review was shown.
+
+### EC-30
+
+**Before:** an unavailable desktop escaped from the phase. No JSON or Markdown
+report was written, earlier passing phases disappeared, the affected phase's file
+snapshot was skipped, and cleanup could kill EC while it was still writing.
+
+**Now:** `PASS`, `FAIL`, and `INCONCLUSIVE` are separate recorded outcomes. An
+inconclusive phase stops later phases but keeps earlier results and attempts its
+final file snapshot. Cleanup failures cannot replace an earlier exception; they
+are recorded separately, fail the run and stop later phases. For a confirmed
+desktop move, cleanup first asks EC to close normally, then attempts to end the
+test process if needed. A failed snapshot is reported, not silently omitted.
+
+Build identity is captured before testing, so an unreadable executable after the
+phases cannot erase their results. Both report formats are attempted independently
+and each is written atomically. Storage failure can still prevent either report;
+it exits `1`. The CI and release summaries distinguish failure from an inconclusive
+run while blocking both. An earlier failed check remains a failure even if a later
+phase loses the desktop.
+
+The report format is version 2 and includes phase and total durations, making a
+performance regression visible in the evidence rather than only in a commit
+message. Automated tests exercise the actual phase loop for failed, inconclusive,
+cleanup and preflight paths, including snapshots and preserved earlier results.
+
+### EC-31
+
+**Before:** six waits looked for a review or warning only among the desktop's
+top-level windows. These dialogs are owned by EC's main window, so the lookup
+could not find them and each “wait for close” succeeded immediately.
+
+**Now:** closure is checked with the dialog's full automation identity: native
+handle, owning process, and runtime identity. This works for both owned and
+top-level windows and across virtual desktops. The identity is verified before
+the action, and the wait ends when it no longer identifies that same dialog. A
+new same-process dialog may reuse the old handle without being mistaken for the
+old one. This does not make checking an identity and acting on it atomic.
+Preflight also opens the owned review through the same
+main-window child lookup used by every phase, pinning the fast discovery path.
+
+Forcing the close predicate to stay false made preflight wait and fail with “the
+conversion review did not close.” That control would have returned immediately
+through the old desktop-child lookup.
+
+### BL-28
+
+**The GUI CSV report now names the source encoding actually used.** A user can
+override automatic detection for a refused file. Conversion and the journal used
+that chosen encoding, but the CSV kept printing the older detected encoding. The
+file was converted correctly; the exported record was wrong.
+
+The CSV writer now uses the source label captured when conversion opened the
+file. A regression test covers a detected `windows-1250` file converted with an
+explicit `iso-8859-1` choice.
+
+### BL-29
+
+**Ctrl+C now finishes a requested CLI journal before returning.** Previously the
+direct and saved-plan command paths returned as soon as cancellation was seen.
+Some files could already have been converted, but no requested journal was
+written. For a saved plan, rows not reached by the write pass are now marked
+`NotAttempted` before the journal is saved, so a preview result is never reported
+as a completed conversion.
+
+The command still exits `4` for a successful cancellation. If the requested
+journal itself cannot be saved, it exits `3` and explains that the audit record
+could not be written.
+
+### BL-30
+
+**The output-verification test now reaches output verification.** Its old name
+claimed to test a damaged temporary output, but its custom encoding was rejected
+before EC wrote anything. The replacement test alters the completed temporary
+output immediately before verification. EC returns `VerificationFailed` and the
+original source bytes remain unchanged.
+
+
+### BL-31
+
+**Interrupted reports now distinguish unfinished work from completed work.** The
+CLI apply summary counted unreached files as unchanged, while GUI CSV export
+could call them converted. Both now report `NotAttempted` separately. GUI and
+CLI share the completion-marker helper.
+
+Journal schema 6 adds `Interrupted`. Direct scans may have discovered only part
+of a folder, so their partial journal no longer looks like a completed scan.
+GUI and plan application retain all known rows. Real CLI cancellation tests
+check the console, journal, CSV, exit code and original bytes left untouched;
+orchestration tests cover the GUI's exported rows.
+
+### BL-32
+
+**A cancelled scan saves its partial CSV and explains why it did not write a
+plan.** Previously it returned before either output step, silently leaving an
+older CSV or plan in place. CSV export now runs before returning. A partial
+scan must not become an approved plan: any existing plan is preserved and
+stderr explicitly says no new plan was written. Regression tests exercise
+actual CLI callbacks, including a conversion error followed by cancellation.
+
+### BL-33
+
+**The GUI CSV export no longer reports cancelled or stale-plan files as
+Converted.** `ConversionOrchestrator`'s decide pass marks eligible entries
+"would convert" before the user is ever asked to confirm. Cancelling the
+review, hitting a stale plan, failing to plan, the `ChooseSourceEncoding`
+retry matching no file, and cancellation reaching the decide pass itself
+(from `RefreshSourceSnapshots`, either `whatIf` pass, or the cancellation
+check between them) all returned or threw without correcting that mark, so
+the same entries could later export as `Converted` even though nothing was
+written. This is distinct from BL-31, which covers the write pass being
+interrupted after it starts.
+
+Each no-write return now marks its entries `NotAttempted`, the idiom BL-31
+already established for the write pass. `Run` also wraps the whole
+decide/confirm/write sequence in one cancellation handler that reconciles
+entries before rethrowing, so cancellation escaping earlier than the
+confirmation loop is covered too. Regression tests drive real orchestration
+for each path and export a real CSV, asserting no `Converted` row and every
+entry `NotAttempted`; each was confirmed to fail against the prior code
+before the fix. See PR #107.
+
+### EC-32
+
+**A cancellation timeout keeps the refused press and describes it accurately.**
+The timeout decision dropped the last refusal and could say no button was
+found even after repeated refused presses. It now names the refusal. Tests
+cover no button, refused presses, an attempted press and an uncertain press.
+This fixes diagnostics, not the underlying reason a provider refused a click.
+
+### BL-34
+
+**ASCII is now already UTF-8, so repeating a backed-up conversion keeps the
+original backup.** ASCII bytes are identical in UTF-8 without a BOM, but EC
+planned them as a conversion. A UTF-16 file of English text converts to ASCII
+bytes, so running `-Target utf-8 -Backup` a second time rewrote the file to the
+same bytes and replaced its `.bak`, which held the UTF-16 original, with a copy
+of the converted file. The recovery record describing the original went with it.
+The text was never at risk, but the only copy of the original bytes was, and
+`-FailOnChanges` reported a change on every run.
+
+Found by a 2026-09-28 review and reproduced with the v3.14.5 CLI: after the
+second run the backup and the converted file had the same hash, and the recovery
+record named `us-ascii` instead of `utf-16`.
+
+The policy now plans an ASCII source for a UTF-8 target, both without a BOM, as
+`Unchanged`, with the explanation "ASCII is already valid UTF-8 without a BOM."
+That path already validates the whole file, so a non-ASCII byte past the 64 KiB
+detection sample is reported as an error before any backup is made. A UTF-8 target
+with a BOM still converts. The rule runs after the check for a source choice that
+contradicts reliable detection, so `-From us-ascii` on UTF-8 text is still refused
+rather than reported as an error. A source-choice warning about a BOM-less UTF-16
+or UTF-32 estimate now stays with any file left unchanged, and outranks the ASCII
+explanation. Conversion semantics moved from 7 to 8, so plans written earlier are
+refused rather than applied.
+
+Regression tests cover a repeat backed-up run, `-FailOnChanges`, a late non-ASCII
+byte, a saved plan, the GUI sequence converting the same rows twice, the conflict
+order, and the kept warnings. Several older tests used ASCII as their convertible
+file and silently stopped reaching conversion; they now use UTF-16 with a BOM, and
+each was confirmed to fail again against a broken build. Smoke phase B now expects
+ASCII to keep its bytes with no backup or record.
+
+### BL-35
+
+**A read-only or linked destination is now refused for every file EC saves, not
+only for the GUI's text and CSV exports.** Saving stages a temporary file and then
+installs it, and installing clears a read-only flag and replaces a link with a
+regular file. The GUI exports refused both cases after BL-24, but plans, journals
+(including the GUI's journal export), CLI reports and settings did not. Found by a
+2026-09-28 review: with the v3.14.5 CLI, `-Report` onto a read-only CSV exited 0,
+replaced its contents and set the flag again afterwards. The link case comes from
+reading the code; the tests use a directory junction, the link a test can create
+without special privileges, and no file symbolic link was tried.
+
+The refusal now sits in the shared writer, so every saved file gets it, and the
+file and its flag are left as they were. The CLI also checks `-Plan`, `-Journal`
+and `-Report` before any file changes, so a refused output stops the run with
+exit 3 instead of being found after conversion. Regression tests cover a plain
+write, a plan and a journal against a read-only file and a junction, and each CLI
+output option against a read-only file; removing each check was confirmed to fail
+them.
+
+One effect to know: a read-only or linked `Settings.xml` is no longer replaced, so
+preferences are not saved while it stays that way. Before, a linked settings file
+was silently replaced by a local copy.
+
+### BL-36
+
+**A file that changes after its conversion was decided now keeps its earlier backup
+and recovery record.** A plan's stale check runs once, before any file is written,
+and the converter checks the source hash again just before installing. The backup
+was made between the two. A file changed after the first check but before its own
+turn was correctly refused by the second, yet by then its `.bak` had been replaced
+with the changed bytes and its recovery record deleted. The row and the journal
+also named the new backup. An earlier restore point was lost for a conversion that
+never happened; the changed file itself was never at risk.
+
+Reproduced on 2026-09-28 at `f553912` with two files, each carrying a backup and
+record from an earlier run, and the second file changed as soon as the first had
+finished. Through `-Apply` and through the GUI sequence alike, the second file
+ended as `SourceChangedDuringConversion` with its backup replaced and its record
+gone. A control that changed the file before `-Apply` started was refused by the
+stale check with nothing touched. A direct run without a plan has the same order,
+but its window is too narrow to hit deterministically; that case is inferred from
+the code.
+
+The backup copy now hashes the bytes it stages and, if they no longer match the
+hash the decision was made on, discards the staged copy before touching the old
+backup or record. The file is reported as `SourceChangedDuringConversion`, and no
+backup is claimed for it. The converter's own check before installation is
+unchanged. Regression tests cover `-Apply`, the GUI sequence and a control where
+nothing changed; removing the new check, claiming the backup anyway, or deleting
+the record before the check each fails them.
+
+This covers a change made before the backup is staged. A change after that point,
+or another later conversion failure, can still leave the new backup in place of
+the old one.
+
+### BL-37
+
+**A source choice that contradicts reliable detection is now refused even when it
+names the target encoding.** The policy checked "already in the target" before the
+conflict, so when the chosen source was also the target the file skipped the
+conflict check. Reproduced on 2026-09-28 with the `master` build:
+
+- `-From windows-1252 -Target windows-1252` on a UTF-8 file with non-ASCII text
+  reported it `Unchanged`, already windows-1252, and exited 0. The report was
+  false, and `-FailOnChanges` passed.
+- `-From utf-8 -Target utf-8` on UTF-16 with a BOM ended as a validation error,
+  exit 3, instead of a refusal naming the conflict.
+
+Nothing was written in either case. The conflict check now runs before both
+"already in the target" rules, so both files are `Refused` with
+`ExplicitSourceConflictsWithDetection` and exit 5, and an existing backup is left
+as it was. A choice that agrees with detection is still `Unchanged`. Tests cover
+both reproductions, the agreeing control and the rule order; restoring the old
+order fails them.
+
+Semantics stay at 8. The change only turns some `Unchanged` decisions into
+refusals, which revalidation of an applied plan already permits, and semantics 8
+has not been released.
+
+### BL-38
+
+**`-Validate` now accepts ASCII wherever BOM-less UTF-8 is allowed.** After BL-34,
+conversion to UTF-8 without a BOM leaves ASCII files unchanged, but `-Validate`
+still compared labels, so the same file failed `-Validate "utf-8"` as
+`CharsetNotAllowed`, exit 2 under `-FailOnChanges`. A pipeline that converted with
+`-Target utf-8` and then checked with `-Validate "utf-8,utf-8-bom"` failed every
+file whose text was plain English. Reproduced on 2026-09-28 with the `master` build.
+
+`-Validate` now uses the same rule conversion uses, from `ConversionPolicy`, and
+explains the pass with "ASCII is already valid UTF-8 without a BOM." Only the
+BOM-less `utf-8` label accepts ASCII; a list allowing only `utf-8-bom` still
+rejects it, because an ASCII file has no BOM. The whole file is still validated
+as ASCII, so a non-ASCII byte past the detection sample is reported as invalid,
+as conversion reports it. Tests cover each list, the explanation and the late
+byte.
+
+### BL-39
+
+**A source chosen in a GUI review that ends without writing no longer carries into
+the next review.** Choosing a source for a refused file updates that row, so the
+review can show it as ready. The rows survive between runs, and cancelling left
+the choice on them: the next Convert showed the file as ready to convert with a
+source nobody chose in that review, while the list still showed the detected
+encoding. Found by a 2026-09-20 review and confirmed through the orchestration
+sequence; no file was written.
+
+The choices are now saved when the review opens and put back when it ends without
+writing: cancelled, stale, or not plannable, or cancelled before the write pass.
+Choices that existed before the review opened are kept. A completed or
+interrupted run keeps the choices it wrote with. Tests choose and then cancel,
+and run the same rows again, keep an earlier choice, and cover a review that went
+stale; removing the restore, clearing every choice, or restoring only on
+cancellation each fails them.
+
+### BL-40
+
+**The GUI's Validate status now says how many files it checked.** Files that pass
+are not added to the list, and the status was built from the row count, so it read
+"0 files do not have the correct encoding" both when every file passed and when a
+mistyped mask matched nothing. A clean result could stand in for a check that never
+ran. Found by a 2026-09-20 review from the source.
+
+The window now counts every file as the scan reports it. The status reads "No
+matching files were examined", "Checked N files: all valid", or "Checked N files:
+X do not have the correct encoding", adding "Y could not be read" for files the
+scan could not open. Files skipped by exclusions are still reported after it, as
+before. Tests feed real Validate scans into the same count: a mask that matches
+nothing, an empty folder, all valid, and a mix with a file held open; three
+mutations to the counting fail them. The two lines that connect the count to the
+window are checked by reading, not by a test, and the GUI smoke suite does not
+run Validate.
+
+### BL-41
+
+**GUI rows now show this run's state and reason.** Rows survive between runs. A
+file that failed or was previewed as "would convert" in one run and was then left
+unchanged or skipped in the next kept the earlier run's icon, so the list described
+a run that was over. The reason a file failed, was refused or was left unchanged
+went only to the debug output, so the window never said why; the CSV export was the
+only place to read it. Found by the 2026-09-20 review from the source.
+
+A row left unchanged or skipped now has its icon cleared. Every row shows its
+current reason as a tooltip, set on each run and emptied when the run gives none,
+for example "ASCII is already valid UTF-8 without a BOM." on a plain-English file
+converted to UTF-8, or a validation failure's reason. No column was added. Tests
+cover cleared icons after a failed and a previewed run, the tooltip following each
+result, and the window showing a scanned row's reason; four mutations fail them.
+
+### BL-42
+
+**A preview's CSV report now says `WouldConvert`.** `-WhatIf`, `-Plan`, and the
+GUI's preview followed by a CSV export wrote `Converted` for each file that a real
+run would convert, although nothing was written. On the command line, only the
+journal marked a preview, as `NotAttempted`. Found by the 2026-09-20 review and reproduced on
+2026-10-01 with the v3.15.0 CLI: the file's bytes were unchanged and no backup
+existed, while the report said `Converted`. No file was at risk: this was what the
+report said, not what EC did.
+
+The `Result` column is read by scripts, so the wording was decided before the
+change: a file a preview only decided to convert is `WouldConvert`, and
+`Converted` now appears only for a file EC wrote; the `-Verbose` breakdown counts
+the same way. A script that counted `Converted` rows in a preview to learn what
+would change must now match `WouldConvert`, and a script that checks for known
+`Result` values will see a new one. An unreached row still reads `NotAttempted`.
+The journal is unchanged. The reverse does not hold: an `Error` row may still have
+been replaced, which the journal records.
+
+Tests read the CSV from `-WhatIf -Report` and `-WhatIf` stdout, `-Plan` stdout, a
+real run's report, and the orchestrator's rows after a GUI-style preview followed
+by a real conversion, and by a run on which the file had become unreadable. A
+writer test checks that `NotAttempted` takes precedence, and a `-Verbose` test
+checks the breakdown. Ignoring the preview marker, not clearing it at the start of
+a pass, or letting it outrank `NotAttempted` each fails them.
+
+### BL-43
+
+**A file name with an unpaired UTF-16 surrogate cannot be planned or backed up.**
+NTFS allows such names. Plans, journals and recovery records are JSON, and the
+serializer silently replaces the unpaired half with U+FFFD, so the recorded path
+names a different file. Reproduced on 2026-09-28 with the v3.14.5 build:
+
+- `-Plan` exited 0 and listed the file as ready to convert, but recorded
+  `x\uFFFDy.txt`; `-Apply` then refused the whole plan, naming the file as no
+  longer existing.
+- A direct `-Backup` run failed with `RecoveryRecordError` ("does not describe the
+  expected file") and left a `.bak` behind.
+
+The source file was never modified. The failure is safe, but it arrives late and
+names the wrong cause. Deferred because such names are unusual, and refusing them
+at planning would still have to report a path that JSON cannot hold exactly.
+
+## Known test coverage gaps
+
+These are parts of the code no test drives. None is a known defect, and none is
+counted in the ledger. Each was checked against `master` at `23d83c4` on
+2026-09-29.
+
+- **Settings loading and mask parsing.** `MainForm.LoadSettings` and
+  `MainForm.SplitFileMasks` are private and no test calls them, directly or through
+  the form.
+- **The converter's link and unknown-installation branches.** No test reaches
+  `ReparsePointRejected`, for a source or a destination that is a link, or the
+  branch that reports the installation state as unknown. The journal's mapping of
+  an unknown installation is tested with a constructed entry, not a real failure.
+- **The Ctrl+C handlers.** Cancelling a CLI run through a cancellation token is
+  tested; the `Console.CancelKeyPress` handlers that turn Ctrl+C into that token
+  are not driven.
+- **The self-contained executable.** The release workflow checks `--version` on
+  the build's DLL and drives the published framework-dependent executable through
+  the GUI smoke suite. The self-contained executable is built, signed when a
+  certificate is available, and archived, but never run.
+
+An earlier note that the GUI smoke report hashes only the launcher was wrong: it
+records the managed assembly's hash as well, which changes with each build.
+
+## Decisions and mistakes that must remain visible
+
+### A known defect shipped after being reported closed
+
+EC-06 was present before v3.11.0, recorded as confirmed, and reported as closed.
+It shipped broken in v3.11.0 and v3.11.1, then was rediscovered from scratch
+during unrelated work. Neither the corpus audit nor the GUI suite covered a
+drive-root plan. The record failed because it trusted a summary instead of the
+source.
+
+### A correction was recorded for code that should not change
+
+CX-07 said old plans, journals, and reports had been excluded. No such change
+had been made, and `docs/CLI.md` intentionally promises the opposite. The false
+record was corrected on 2026-09-07 only after the row was re-derived from code.
+
+### Aggregate counts drifted repeatedly
+
+The open count had already stopped reconciling with its rows three times. The
+2026-09-08 recheck found a separate error: “27 fixed” counted CX-07 as fixed
+although the ledger called its alleged behavior not a defect. The current header
+is generated from the canonical rows, and `Test-DefectBacklog.ps1` fails if it
+drifts again.
+
+### A later review over-rated four of its own findings
+
+The independent review of `74d5b3d` that produced BL-06 through BL-17 correctly
+found mechanisms, then described their importance before checking realistic
+product behavior. The user caught all four corrections: two findings were
+downgraded after measurement, one proposed correction was rejected when it
+broke four existing tests, and one finding was withdrawn after checking the
+actual CSV. This is kept visible because a true mechanism does not automatically
+justify the claimed product risk.
+
+
+## The source-choice refusal is covered by both a unit test and smoke phase J
+
+Before BL-04 was addressed, a user could scan one directory, point the main
+window at another without scanning again, tick a refused file, choose an
+encoding, and confirm. The review closed and the status said “Conversion
+cancelled. No files were modified.” The user's choice had been discarded.
+
+The unit test constructs that state directly. Smoke phase J drives it through
+the built application: the review must remain open, name
+`..\scanned\french.txt`, explain that it is no longer inside the review, and
+leave every source byte unchanged. BL-26 records the automation-driver defect
+found while making that phase reliable.
+
+
+## Historical records
+
+The recheck that produced this ledger, the measurements behind three rejected
+throughput changes, and the pre-reformat row mapping are kept in
+[DEFECT-BACKLOG-HISTORY.md](DEFECT-BACKLOG-HISTORY.md). They are audit trail
+rather than current status, and moving them changed nothing but their address.
