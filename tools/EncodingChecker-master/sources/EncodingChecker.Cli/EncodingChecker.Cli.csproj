@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{BDB98362-36D2-44D7-AF06-25350D84F1B0}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>EncodingChecker.Cli</RootNamespace>
+    <AssemblyName>EncodingChecker.Cli</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <OutputPath>..\..\App\</OutputPath>
+    <IntermediateOutputPath>obj\$(Configuration)\</IntermediateOutputPath>
+    <LangVersion>7.3</LangVersion>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <Optimize>true</Optimize>
+    <Deterministic>true</Deterministic>
+    <GenerateSerializationAssemblies>Off</GenerateSerializationAssemblies>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Web.Extensions" />
+    <None Include="app.manifest" />
+    <Compile Include="Program.cs" />
+    <Compile Include="Models.cs" />
+    <Compile Include="Detection.cs" />
+    <Compile Include="SafeFiles.cs" />
+    <Compile Include="Transactions.cs" />
+    <Compile Include="..\EncodingChecker\Utf16Detector.cs"><Link>Detection\Utf16Detector.cs</Link></Compile>
+    <Compile Include="..\EncodingChecker\UtfUnknown\**\*.cs"><Link>UtfUnknown\%(RecursiveDir)%(Filename)%(Extension)</Link></Compile>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

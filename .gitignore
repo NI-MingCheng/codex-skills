@@ -1,25 +1,23 @@
-# Secrets and local configuration
-.env
-.env.*
-*token*
-*.key
-*.pem
-auth.json
-secrets/
-
-# Device-local state
-.local/
-backups/
-codex-text.runtime
-repositories.json
-sessions/
-memories/
-history.jsonl
-*.jsonl
-*.log
-
-# Generated files
+# Build output and IDE state; packaged executables under App/ are intentional.
+**/bin/
+**/obj/
+**/test-work/
+**/.vs/
+*.pdb
+*.suo
+*.user
 __pycache__/
 *.py[cod]
 .DS_Store
 Thumbs.db
+
+# Device-local configuration and secrets.
+.env
+.env.*
+*.key
+*.pem
+auth.json
+secrets/
+sessions/
+memories/
+*.log

@@ -1,38 +1,30 @@
-# 首次安装
+# 安装项目编码技能
 
-## 前置条件
+此仓库当前只有 `project-encoding` 一个技能，工具单独放在 `tools/`。前提是已经安装 PowerShell 7 和 Windows .NET Framework 4.8；不自动安装依赖或修改其他 Codex 设置。
 
-- Windows PowerShell 7 与 Git 已安装。
-- 本机已有可用的 credential-free loopback HTTP 或 mixed proxy。
-- conda 已安装，且环境 `codex` 已存在。
-- 所选 Skill 在 `catalog.json` 声明的 Python package 已存在且版本匹配。
+## 安装目录
 
-恢复配置不构成软件安装授权。脚本只读检查这些条件；缺失时停止并给出精确报告。
+将整个 `skills/project-encoding` 目录复制到 Codex 的 skills 目录：配置了 `CODEX_HOME` 时使用该目录下的 `skills/`，否则通常是用户目录下的 `.codex/skills/`。不要只复制 SKILL.md，agents 和 references 也需要保留。
 
-## 代理 bootstrap
+目的技能目录已经存在时，先备份，再替换该技能；不要改其他技能、全局规则、hooks、MCP 或 config.toml。卸载旧技能或调整全局规则需要用户另外明确授权。
 
-仓库无法在完全离线且尚未配置代理时自行下载自身，因此第一次 clone 前需要把 README 中的“一句话安装”交给 Codex。Codex 先用本机信息完成代理预检，再通过公开 HTTPS 地址 clone。
+将 `tools/EncodingChecker-master` 保留在本仓库内，或者放到自己的预装工具目录。调用时按实际安装位置设置 CLI 的绝对路径；不需要加入 PATH。
 
-clone 后，`scripts/bootstrap.ps1` 再次执行相同的确定性检查，并在写入 user environment 前把旧值保存到：
-
-```text
-%USERPROFILE%\.codex\backups\<timestamp>-proxy\
+```powershell
+# $repoRoot 是已验证的仓库实际路径，$projectRoot 是要扫描的实际工程路径。
+$cli = Join-Path $repoRoot 'tools/EncodingChecker-master/App/EncodingChecker.Cli.exe'
+& $cli --version
+& $cli scan --root $projectRoot --output (Join-Path $projectRoot 'docs/encoding-snapshot.json')
 ```
 
-脚本会设置 `CODEX_PROXY_URL`、`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 和 loopback-safe `NO_PROXY`。如果值发生变化，需要重新启动 Codex。
+扫描默认只读，不转换源码。编码未确认时可以集中确认项目默认值与例外；如果拥有者已明确指定整个工程默认 GBK，可以传 `--default-encoding gbk`。确认快照后直接用原生工具按指定编码读取、修改和保存，不每次调用 CLI。
 
-## 安装目标
+## 转码
 
-默认安装到：
+`convert --snapshot ...` 默认只生成计划。仅在用户已经授权具体范围的编码变化后才执行 `--apply`，并验证项目的实际消费者。转换成功后旧快照变为过期记录，将其归档，后续已统一 UTF-8 的范围不必继续维护编码映射。
 
-```text
-%CODEX_HOME%\skills\<name>
-```
+## 构建与验证
 
-未设置 `CODEX_HOME` 时使用 `%USERPROFILE%\.codex\skills\<name>`。可以用 `-CodexHome` 为隔离测试指定其他根目录。
+工具的独立 CLI project 位于 `tools/EncodingChecker-master/sources/EncodingChecker.Cli/EncodingChecker.Cli.csproj`，使用 MSBuild 和 .NET Framework 4.8 reference assemblies。构建和测试命令见 [工具文档](../tools/EncodingChecker-master/docs/cli-workflow.md)。
 
-安装过程先验证全部源 Skill，再逐个 staging、备份和替换。任何 post-install test 失败都会恢复该 Skill 的安装前状态。
-
-## Conda 发现
-
-脚本依次检查 `-CondaExe`、`CODEX_CONDA_EXE`、`CONDA_EXE`、PATH、Windows uninstall registry 和常见用户级安装目录。无法唯一定位时停止；它不会扫描磁盘、修改 `.condarc`、创建环境或安装 package。
+第三方现有 source 的 encoding、BOM 和 EOL 保持原样，Git attributes 不对 tools/ 做换行归一化。

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Encoding Guard"
-  short_description: "Handle risky encodings and mojibake on demand"
-  default_prompt: "Use $encoding-guard only for unknown or legacy encodings, exact BOM/EOL preservation, mojibake, or cross-shell Unicode transport; keep ordinary UTF-8 work native."
