@@ -55,10 +55,12 @@ agent 快照区分候选与确认，支持默认 codec 和逐文件例外；完�
 
 依赖预先安装的 PowerShell 7 和 **.NET 10 Desktop Runtime**。不自动安装系统依赖、修改 PATH 或覆盖其他全局规则。
 
-安装或更新步骤见 [安装说明](docs/installation.md)。可直接给 Codex 这条指令，并指定本机仓库和工具路径：
+安装或更新步骤见 [安装说明](docs/installation.md)。Windows 本机的 `tools` 工具统一部署到 `D:\Programs\Tools`；当前唯一工具 `EncodingChecker-master` 的固定安装目录是 `D:\Programs\Tools\EncodingChecker-master`。每次同步技能时也同步该工具，后续无需重复指定路径；只有用户明确指定其他位置时才覆盖此约定。
+
+可直接给 Codex 这条指令：
 
 ```text
-参考此仓库，安装 skills/project-encoding，使用 tools/EncodingChecker-master/App/EncodingChecker.Cli.exe。普通 UTF-8 工作使用原生工具；混合编码只读扫描并确认一次后复用快照，默认不转码。
+参考此仓库，按照 docs/installation.md 安装或更新本地技能及配套工具。普通 UTF-8 工作使用原生工具；混合编码只读扫描并确认一次后复用快照，默认不转码。
 ```
 
 ## 许可证

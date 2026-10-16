@@ -7,11 +7,10 @@ description: Scan or diagnose unknown and mixed project encodings using the inst
 
 普通已确认 UTF-8 项目直接使用原生工具。只有出现解码异常、接手已知 legacy/混合编码工程，或用户要求检查/转换编码时才使用本技能。默认只读扫描，默认不转码。
 
-预置环境是 pwsh 7、.NET 10 Desktop Runtime 和 EncodingChecker agent CLI；不自动安装或修改 shell、locale、profile。本仓库的工具位于 `tools/EncodingChecker-master/App/EncodingChecker.Cli.exe`，使用上游 v3.15.1 的转换引擎。按实际安装位置设置 `$cli` 的绝对路径；技能独立安装时，使用预装工具的实际路径。
+预置环境是 pwsh 7、.NET 10 Desktop Runtime 和 EncodingChecker agent CLI；不自动安装或修改 shell、locale、profile。工具使用上游 v3.15.1 的转换引擎。Windows 本机固定使用 `D:\Programs\Tools\EncodingChecker-master\App\EncodingChecker.Cli.exe`；安装或更新时将仓库中的整个 `tools/EncodingChecker-master` 同步到 `D:\Programs\Tools\EncodingChecker-master`，已有目录先备份，不改同级其他工具。此路径约定无需用户重复说明，只有用户明确指定其他位置时才覆盖；调用不依赖仓库 checkout。
 
 ```powershell
-# $repoRoot 是本仓库的实际路径；独立安装时直接设置预装 CLI 的绝对路径。
-$cli = Join-Path $repoRoot 'tools/EncodingChecker-master/App/EncodingChecker.Cli.exe'
+$cli = 'D:\Programs\Tools\EncodingChecker-master\App\EncodingChecker.Cli.exe'
 & $cli scan --root $root --output (Join-Path $root 'docs/encoding-snapshot.json')
 ```
 
